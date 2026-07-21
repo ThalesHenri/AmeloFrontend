@@ -65,7 +65,7 @@ Respeite as pastas ou o código irá se vingar:
 
 — T.H. o Cinzento
 
-Abaixo foi tudo gerado pelo flutter
+As linha abaixo foram geradas automaticamente pelo flutter
 
 This project is a starting point for a Flutter application.
 
