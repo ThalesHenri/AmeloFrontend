@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'theme.dart';
-import 'ui/screens/dashboard_screen.dart';
-import 'ui/screens/detalhes_demandas_screen.dart';
-import 'ui/screens/login_screen.dart';
+import 'app_routes.dart';
 
 void main() {
   runApp(AmeloApp());
@@ -13,7 +11,6 @@ class AmeloApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // 👁️ O MaterialApp inteiro agora observa o themeNotifier!
     return ValueListenableBuilder<ThemeMode>(
       valueListenable: themeNotifier,
       builder: (context, currentMode, child) {
@@ -21,13 +18,12 @@ class AmeloApp extends StatelessWidget {
           title: 'Amelo App',
           debugShowCheckedModeBanner: false,
 
-          // Os dois grimórios de cores:
           theme: AmeloTheme.lightTheme, // Modo Claro
           darkTheme: AmeloTheme.darkTheme, // Modo Escuro
-          // A runa que faz a troca acontecer:
+          //Seletor de Tema
           themeMode: currentMode,
-
-          home: const DetalhesDemandaScreen(),
+          initialRoute: AppRoutes.login,
+          routes: AppRoutes.routes,
         );
       },
     );

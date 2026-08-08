@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import '../../app_routes.dart';
+import '../../repository/hooks/use_auth.dart';
+import '../../repository/usuario_repository.dart';
+import '../../repository/services/api_service.dart';
 import '../../theme.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -9,9 +13,18 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final _emailController = TextEditingController();
+  final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _useAuth = UseAuth(UsuarioRepository(ApiService()));
   bool _obscurePassword = true;
+  bool _isLoading = false; // Controle de carregamento seguro da tela
+
+  @override
+  void dispose() {
+    _usernameController.dispose();
+    _passwordController.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -83,11 +96,12 @@ class _LoginScreenState extends State<LoginScreen> {
 
                 const SizedBox(height: 40),
 
-                // --- CAMPO EMAIL / CPF ---
+                // --- CAMPO USERNAME ---
                 TextField(
-                  controller: _emailController,
+                  controller: _usernameController,
+                  keyboardType: TextInputType.text,
                   decoration: InputDecoration(
-                    labelText: 'E-mail ou CPF',
+                    labelText: 'Nome de Usuário',
                     prefixIcon: const Icon(Icons.person_outline_rounded),
                     filled: true,
                     fillColor: theme.colorScheme.surface,
@@ -159,18 +173,73 @@ class _LoginScreenState extends State<LoginScreen> {
                       ),
                       elevation: 2,
                     ),
-                    onPressed: () {
-                      // NAVEGAÇÃO TEMPORÁRIA DE TESTE PARA O DASHBOARD:
-                      // Navigator.pushReplacement(context, MaterialPageRoute(builder: (_) => const DashboardScreen()));
-                    },
-                    child: const Text(
-                      'Entrar no Painel',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
+                    onPressed: _isLoading
+                        ? null
+                        : () async {
+                            final username = _usernameController.text.trim();
+                            final senha = _passwordController.text.trim();
+
+                            if (username.isEmpty || senha.isEmpty) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'Informe o nome de usuário e a senha.',
+                                  ),
+                                  backgroundColor: Colors.orange,
+                                ),
+                              );
+                              return;
+                            }
+
+                            setState(() {
+                              _isLoading = true;
+                            });
+
+                            final sucesso = await _useAuth.login(
+                              username,
+                              senha,
+                            );
+
+                            if (!mounted) return;
+
+                            setState(() {
+                              _isLoading = false;
+                            });
+
+                            if (sucesso) {
+                              Navigator.pushReplacementNamed(
+                                context,
+                                AppRoutes.home,
+                              );
+                            } else {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(
+                                    _useAuth.error ??
+                                        'Falha ao realizar login.',
+                                  ),
+                                  backgroundColor: Colors.red,
+                                ),
+                              );
+                            }
+                          },
+                    child: _isLoading
+                        ? const SizedBox(
+                            height: 22,
+                            width: 22,
+                            child: CircularProgressIndicator(
+                              color: Colors.white,
+                              strokeWidth: 2.5,
+                            ),
+                          )
+                        : const Text(
+                            'Entrar no Painel',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
                   ),
                 ),
 

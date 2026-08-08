@@ -1,12 +1,95 @@
 import 'package:flutter/material.dart';
+import '../../app_routes.dart';
+import '../../repository/services/api_service.dart';
 import '../../theme.dart';
 
-class DashboardScreen extends StatelessWidget {
+class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
 
   @override
+  State<DashboardScreen> createState() => _DashboardScreenState();
+}
+
+class _DashboardScreenState extends State<DashboardScreen> {
+  int total = 0;
+  int abertas = 0;
+  int urgentes = 0;
+  int andamento = 0;
+  int concluidas = 0;
+  bool isLoading = true;
+  String? error;
+
+  @override
+  void initState() {
+    super.initState();
+    _carregarDashboard();
+  }
+
+  Future<void> _carregarDashboard() async {
+    final api = ApiService();
+
+    if (!api.isAuthenticated) {
+      if (!mounted) return;
+
+      setState(() {
+        isLoading = false;
+        error = 'Sessão expirada. Faça login novamente.';
+      });
+
+      Navigator.pushNamedAndRemoveUntil(
+        context,
+        AppRoutes.login,
+        (route) => false,
+      );
+      return;
+    }
+
+    try {
+      final data = await api.get('/dashboard/summary');
+
+      if (!mounted) return;
+
+      setState(() {
+        total = (data['total'] as num?)?.toInt() ?? 0;
+        abertas = (data['abertas'] as num?)?.toInt() ?? 0;
+        urgentes = (data['urgentes'] as num?)?.toInt() ?? 0;
+        andamento = (data['em_andamento'] as num?)?.toInt() ?? 0;
+        concluidas = (data['concluidas'] as num?)?.toInt() ?? 0;
+        isLoading = false;
+        error = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+
+      final mensagem = e.toString();
+
+      if (mensagem.contains('401') || mensagem.contains('Não autorizado')) {
+        api.clearToken();
+
+        if (mounted) {
+          setState(() {
+            isLoading = false;
+            error = 'Sessão expirada. Faça login novamente.';
+          });
+
+          Navigator.pushNamedAndRemoveUntil(
+            context,
+            AppRoutes.login,
+            (route) => false,
+          );
+        }
+        return;
+      }
+
+      setState(() {
+        error = mensagem;
+        isLoading = false;
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    // 🔮 A Runa Mestra: Puxa as cores corretas do tema atual (Claro ou Escuro)
     final theme = Theme.of(context);
 
     return Scaffold(
@@ -19,7 +102,7 @@ class DashboardScreen extends StatelessWidget {
               style: TextStyle(
                 fontSize: 20,
                 fontWeight: FontWeight.bold,
-                color: theme.colorScheme.onPrimary, // Adapta ao fundo
+                color: theme.colorScheme.onPrimary,
               ),
             ),
             const Text(
@@ -38,7 +121,7 @@ class DashboardScreen extends StatelessWidget {
                   isDark ? Icons.wb_sunny_rounded : Icons.nightlight_round,
                   color: isDark
                       ? AmeloTheme.primaryGold
-                      : AmeloTheme.lightSurface, // Adapta ao tema
+                      : AmeloTheme.lightSurface,
                 ),
                 tooltip: isDark
                     ? 'Mudar para Modo Claro'
@@ -60,171 +143,189 @@ class DashboardScreen extends StatelessWidget {
           ),
         ],
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // --- BLOCO 1: RESUMO GERAL ---
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Resumo geral',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: theme.colorScheme.onSurface,
+      body: isLoading
+          ? const Center(child: CircularProgressIndicator())
+          : error != null
+          ? Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24.0),
+                child: Text(
+                  'Não foi possível carregar o dashboard: $error',
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            )
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Resumo geral',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: theme.colorScheme.onSurface,
+                        ),
+                      ),
+                      DropdownButton<String>(
+                        value: 'Todos os condomínios',
+                        dropdownColor: theme.colorScheme.surface,
+                        style: const TextStyle(
+                          color: AmeloTheme.textSecondary,
+                          fontSize: 12,
+                        ),
+                        underline: const SizedBox(),
+                        items: const [
+                          DropdownMenuItem(
+                            value: 'Todos os condomínios',
+                            child: Text('Todos os condomínios'),
+                          ),
+                        ],
+                        onChanged: (value) {},
+                      ),
+                    ],
                   ),
-                ),
-                DropdownButton<String>(
-                  value: 'Todos os condomínios',
-                  dropdownColor: theme.colorScheme.surface, // Adapta ao tema
-                  style: const TextStyle(
-                    color: AmeloTheme.textSecondary,
-                    fontSize: 12,
+                  const SizedBox(height: 12),
+
+                  GridView.count(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    crossAxisCount: 2,
+                    crossAxisSpacing: 12,
+                    mainAxisSpacing: 12,
+                    childAspectRatio: 1.4,
+                    children: [
+                      _StatusCard(
+                        titulo: 'Total de demandas',
+                        valor: total.toString(),
+                        icone: Icons.crop_original_rounded,
+                        corIcone: Colors.blueAccent,
+                      ),
+                      _StatusCard(
+                        titulo: 'Abertas',
+                        valor: abertas.toString(),
+                        icone: Icons.crop_square_rounded,
+                        corIcone: AmeloTheme.statusAbertas,
+                      ),
+                      _StatusCard(
+                        titulo: 'Urgentes',
+                        valor: urgentes.toString(),
+                        icone: Icons.error_outline_rounded,
+                        corIcone: AmeloTheme.statusUrgente,
+                      ),
+                      _StatusCard(
+                        titulo: 'Em andamento',
+                        valor: andamento.toString(),
+                        icone: Icons.autorenew_rounded,
+                        corIcone: AmeloTheme.statusAndamento,
+                      ),
+                    ],
                   ),
-                  underline: const SizedBox(),
-                  items: const [
-                    DropdownMenuItem(
-                      value: 'Todos os condomínios',
-                      child: Text('Todos os condomínios'),
-                    ),
-                  ],
-                  onChanged: (value) {},
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
+                  const SizedBox(height: 12),
 
-            // Grade de Cards de Resumo
-            GridView.count(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              crossAxisCount: 2,
-              crossAxisSpacing: 12,
-              mainAxisSpacing: 12,
-              childAspectRatio: 1.4,
-              children: const [
-                _StatusCard(
-                  titulo: 'Total de demandas',
-                  valor: '128',
-                  icone: Icons.crop_original_rounded,
-                  corIcone: Colors.blueAccent,
-                ),
-                _StatusCard(
-                  titulo: 'Abertas',
-                  valor: '42',
-                  icone: Icons.crop_square_rounded,
-                  corIcone: AmeloTheme.statusAbertas,
-                ),
-                _StatusCard(
-                  titulo: 'Urgentes',
-                  valor: '11',
-                  icone: Icons.error_outline_rounded,
-                  corIcone: AmeloTheme.statusUrgente,
-                ),
-                _StatusCard(
-                  titulo: 'Em andamento',
-                  valor: '35',
-                  icone: Icons.autorenew_rounded,
-                  corIcone: AmeloTheme.statusAndamento,
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-
-            // Card de Concluídas (Largura total)
-            const _StatusCard(
-              titulo: 'Concluídas',
-              valor: '75',
-              icone: Icons.check_circle_outline_rounded,
-              corIcone: AmeloTheme.statusConcluido,
-            ),
-
-            const SizedBox(height: 24),
-
-            // --- BLOCO 2: DEMANDAS POR CONDOMÍNIO ---
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Demandas por condomínio',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.bold,
-                    color: theme.colorScheme.onSurface,
+                  _StatusCard(
+                    titulo: 'Concluídas',
+                    valor: concluidas.toString(),
+                    icone: Icons.check_circle_outline_rounded,
+                    corIcone: AmeloTheme.statusConcluido,
                   ),
-                ),
-                TextButton(
-                  onPressed: () {},
-                  child: const Text(
-                    'Ver todas',
-                    style: TextStyle(color: AmeloTheme.statusAbertas),
+
+                  const SizedBox(height: 24),
+
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Demandas por condomínio',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: theme.colorScheme.onSurface,
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: () {},
+                        child: const Text(
+                          'Ver todas',
+                          style: TextStyle(color: AmeloTheme.statusAbertas),
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
+                  const SizedBox(height: 8),
 
-            // Lista Mockada de Condomínios
-            const _CondominioBarItem(
-              nome: 'Residencial Jardim das Flores',
-              valor: 18,
-              percentual: 0.8,
-            ),
-            const _CondominioBarItem(
-              nome: 'Edifício Parque Central',
-              valor: 15,
-              percentual: 0.65,
-            ),
-            const _CondominioBarItem(
-              nome: 'Condomínio Vila do Sol',
-              valor: 12,
-              percentual: 0.5,
-            ),
-            const _CondominioBarItem(
-              nome: 'Residencial das Palmeiras',
-              valor: 10,
-              percentual: 0.4,
-            ),
-            const _CondominioBarItem(
-              nome: 'Edifício Maria Carolina',
-              valor: 8,
-              percentual: 0.3,
-            ),
+                  const _CondominioBarItem(
+                    nome: 'Residencial Jardim das Flores',
+                    valor: 18,
+                    percentual: 0.8,
+                  ),
+                  const _CondominioBarItem(
+                    nome: 'Edifício Parque Central',
+                    valor: 15,
+                    percentual: 0.65,
+                  ),
+                  const _CondominioBarItem(
+                    nome: 'Condomínio Vila do Sol',
+                    valor: 12,
+                    percentual: 0.5,
+                  ),
+                  const _CondominioBarItem(
+                    nome: 'Residencial das Palmeiras',
+                    valor: 10,
+                    percentual: 0.4,
+                  ),
+                  const _CondominioBarItem(
+                    nome: 'Edifício Maria Carolina',
+                    valor: 8,
+                    percentual: 0.3,
+                  ),
 
-            const SizedBox(height: 24),
+                  const SizedBox(height: 24),
 
-            // --- BLOCO 3: AÇÕES RÁPIDAS (BOTOES INFERIORES) ---
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                _ActionButton(
-                  titulo: 'Nova\nDemanda',
-                  icone: Icons.add_circle_outline,
-                  corFundo: AmeloTheme.statusAbertas, // Azul
-                  onTap: () {},
-                ),
-                _ActionButton(
-                  titulo: 'Cadastrar\nCondomínio',
-                  icone: Icons.domain_add,
-                  corFundo: AmeloTheme.statusConcluido, // Verde
-                  badgeText: 'NOVO',
-                  onTap: () {},
-                ),
-                _ActionButton(
-                  titulo: 'Buscar\nCondomínio',
-                  icone: Icons.search,
-                  corFundo: AmeloTheme.primaryNavy, // Azul Escuro
-                  onTap: () {},
-                ),
-              ],
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      _ActionButton(
+                        titulo: 'Nova\nDemanda',
+                        icone: Icons.add_circle_outline,
+                        corFundo: AmeloTheme.statusAbertas,
+                        onTap: () {
+                          Navigator.pushNamed(context, AppRoutes.novaDemanda);
+                        },
+                      ),
+                      _ActionButton(
+                        titulo: 'Cadastrar\nCondomínio',
+                        icone: Icons.domain_add,
+                        corFundo: AmeloTheme.statusConcluido,
+                        badgeText: 'NOVO',
+                        onTap: () {
+                          Navigator.pushNamed(
+                            context,
+                            AppRoutes.cadastrarCondominio,
+                          );
+                        },
+                      ),
+                      _ActionButton(
+                        titulo: 'Buscar\nCondomínio',
+                        icone: Icons.search,
+                        corFundo: AmeloTheme.primaryNavy,
+                        onTap: () {
+                          Navigator.pushNamed(
+                            context,
+                            AppRoutes.buscarCondominio,
+                          );
+                        },
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 24),
+                ],
+              ),
             ),
-            const SizedBox(height: 24),
-          ],
-        ),
-      ),
     );
   }
 }
