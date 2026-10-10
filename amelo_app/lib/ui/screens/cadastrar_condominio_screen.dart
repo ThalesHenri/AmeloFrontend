@@ -1,6 +1,9 @@
 // lib/ui/screens/cadastrar_condominio_screen.dart
 
 import 'package:flutter/material.dart';
+import '../../repository/condominio_repository.dart';
+import '../../repository/models/condominio_model.dart';
+import '../../repository/services/api_service.dart';
 import '../../theme.dart';
 
 class CadastrarCondominioScreen extends StatefulWidget {
@@ -13,6 +16,8 @@ class CadastrarCondominioScreen extends StatefulWidget {
 
 class _CadastrarCondominioScreenState extends State<CadastrarCondominioScreen> {
   final _formKey = GlobalKey<FormState>();
+  final _repository = CondominioRepository(ApiService());
+  bool _isSubmitting = false;
 
   // Controllers mapeados diretamente para os atributos da classe Condominio
   final _nomeController = TextEditingController();
@@ -242,19 +247,76 @@ class _CadastrarCondominioScreenState extends State<CadastrarCondominioScreen> {
                       borderRadius: BorderRadius.circular(8),
                     ),
                   ),
-                  onPressed: () {
-                    if (_formKey.currentState!.validate()) {
-                      // Lógica de envio futuramente integrada com a API
-                    }
-                  },
-                  child: const Text(
-                    'Cadastrar Condomínio',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
+                  onPressed: _isSubmitting
+                      ? null
+                      : () async {
+                          if (_formKey.currentState!.validate()) {
+                            setState(() {
+                              _isSubmitting = true;
+                            });
+
+                            try {
+                              final payload = CondominioModel(
+                                id: 0,
+                                nome: _nomeController.text.trim(),
+                                endereco: _enderecoController.text.trim(),
+                                cidade: _cidadeController.text.trim(),
+                                estado: _estadoController.text.trim(),
+                                cep: _cepController.text.trim(),
+                                telefone: _telefoneController.text.trim(),
+                                email: _emailController.text.trim(),
+                                observacoes: _observacoesController.text.trim(),
+                              );
+
+                              await _repository.criar(payload);
+
+                              if (!mounted) return;
+
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text(
+                                    'Condomínio cadastrado com sucesso.',
+                                  ),
+                                  backgroundColor: Colors.green,
+                                ),
+                              );
+
+                              Navigator.pop(context);
+                            } catch (e) {
+                              if (!mounted) return;
+
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(
+                                  content: Text(e.toString()),
+                                  backgroundColor: Colors.red,
+                                ),
+                              );
+                            } finally {
+                              if (mounted) {
+                                setState(() {
+                                  _isSubmitting = false;
+                                });
+                              }
+                            }
+                          }
+                        },
+                  child: _isSubmitting
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Text(
+                          'Cadastrar Condomínio',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                 ),
               ),
             ],

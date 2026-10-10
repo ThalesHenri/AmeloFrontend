@@ -26,13 +26,23 @@ class UseSupervisor extends ValueNotifier<List<SupervisorModel>> {
     }
   }
 
-  Future<bool> adicionar(String nome, String telefone) async {
+  Future<bool> adicionar({
+    required String username,
+    required String email,
+    required String telefone,
+    List<int> condominios = const [],
+  }) async {
     try {
       isLoading = true;
       error = null;
       notifyListeners();
 
-      final novo = await repository.criar(nome, telefone);
+      final novo = await repository.criar(
+        username: username,
+        email: email,
+        telefone: telefone,
+        condominios: condominios,
+      );
       value = [...value, novo];
       return true;
     } catch (e) {

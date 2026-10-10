@@ -40,13 +40,13 @@ class AmeloTheme {
         backgroundColor: surfaceCard,
         elevation: 0,
         centerTitle: true,
-        iconTheme: IconThemeData(color: textDark),
+        iconTheme: IconThemeData(color: textLight),
         titleTextStyle: TextStyle(
-          color: textDark,
+          color: textLight,
           fontSize: 20,
           fontWeight: FontWeight.bold,
         ),
-        foregroundColor: textDark,
+        foregroundColor: textLight,
       ),
       cardTheme: const CardThemeData(
         color: surfaceCard,

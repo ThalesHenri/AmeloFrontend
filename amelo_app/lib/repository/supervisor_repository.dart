@@ -9,19 +9,29 @@ class SupervisorRepository {
   SupervisorRepository(this._apiService);
 
   Future<List<SupervisorModel>> listarTodos() async {
-    final List<dynamic> data = await _apiService.get('/supervisores');
+    final List<dynamic> data = await _apiService.get('/supervisores/');
     return data.map((json) => SupervisorModel.fromJson(json)).toList();
   }
 
-  Future<SupervisorModel> criar(String nome, String telefone) async {
-    final data = await _apiService.post('/supervisores', {
-      'nome': nome,
-      'telefone': telefone,
+  Future<SupervisorModel> criar({
+    required String username,
+    required String email,
+    required String telefone,
+    List<int> condominios = const [],
+  }) async {
+    final data = await _apiService.post('/supervisores/', {
+      'usuario': {
+        'username': username,
+        'email': email,
+        'telefone': telefone,
+        'role': 'SUPERVISOR',
+      },
+      'condominios': condominios,
     });
     return SupervisorModel.fromJson(data);
   }
 
   Future<void> deletar(int id) async {
-    await _apiService.get('/supervisores/$id/deletar');
+    await _apiService.delete('/supervisores/$id/');
   }
 }

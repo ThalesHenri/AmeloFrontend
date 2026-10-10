@@ -16,7 +16,7 @@ class SupervisorModel {
   factory SupervisorModel.fromJson(Map<String, dynamic> json) {
     return SupervisorModel(
       id: json['id'],
-      nome: json['nome'] ?? 'Supervisor Sem Nome',
+      nome: json['username'] ?? 'Supervisor Sem Nome',
       telefone: json['telefone'],
       dataCriacao: json['data_criacao'] != null
           ? DateTime.parse(json['data_criacao'])

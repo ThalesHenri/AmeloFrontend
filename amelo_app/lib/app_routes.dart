@@ -15,12 +15,12 @@ import 'ui/screens/gerenciar_supervisores_screen.dart';
 import 'ui/screens/gerenciar_profissionais_screen.dart';
 import 'ui/screens/dashboard_screen.dart';
 import 'ui/screens/demandas_condominio_screen.dart';
+import 'ui/screens/detalhes_demandas_screen.dart';
 
 abstract class AppRoutes {
   // Constantes das rotas para evitar erros de digitação (magic strings)
   static const String login = '/login';
   static const String home = '/dashboard';
-  static const String detalhesDemanda = '/demanda-detalhes';
   static const String novaDemanda = '/nova-demanda';
   static const String buscarCondominio = '/buscar-condominio';
   static const String cadastrarCondominio = '/cadastrar-condominio';
@@ -28,12 +28,12 @@ abstract class AppRoutes {
   static const String gerenciarSupervisores = '/gerenciar-supervisores';
   static const String gerenciarProfissionais = '/gerenciar-profissionais';
   static const String demandasCondominio = '/demandas-condominio';
+  static const String detalhesDemanda = '/detalhes-demanda';
 
   /// Mapa contendo todos os construtores de tela indexados por rota
   static Map<String, WidgetBuilder> get routes => {
     login: (context) => const LoginScreen(),
     home: (context) => const DashboardScreen(),
-    //detalhesDemanda: (context) => const DetalhesDemandaScreen(),
     novaDemanda: (context) => const NovaDemandaScreen(),
     buscarCondominio: (context) => const BuscarCondominioScreen(),
     cadastrarCondominio: (context) => const CadastrarCondominioScreen(),
@@ -41,8 +41,6 @@ abstract class AppRoutes {
     gerenciarSupervisores: (context) => const GerenciarSupervisoresScreen(),
     gerenciarProfissionais: (context) => const GerenciarProfissionaisScreen(),
     demandasCondominio: (context) => const DemandasCondominioScreen(),
+    detalhesDemanda: (context) => const DetalhesDemandaScreen(),
   };
 }
-
-
-//Faltando fazer as telas comentadas e implementar no material app

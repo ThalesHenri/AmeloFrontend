@@ -2,14 +2,75 @@
 
 import 'package:flutter/material.dart';
 import '../../app_routes.dart';
+import '../../repository/condominio_repository.dart';
+import '../../repository/models/condominio_model.dart';
+import '../../repository/services/api_service.dart';
 import '../../theme.dart';
 
-class BuscarCondominioScreen extends StatelessWidget {
+class BuscarCondominioScreen extends StatefulWidget {
   const BuscarCondominioScreen({super.key});
+
+  @override
+  State<BuscarCondominioScreen> createState() => _BuscarCondominioScreenState();
+}
+
+class _BuscarCondominioScreenState extends State<BuscarCondominioScreen> {
+  final _repository = CondominioRepository(ApiService());
+  final _apiService = ApiService();
+  final _searchController = TextEditingController();
+
+  List<CondominioModel> _condominios = [];
+  List<dynamic> _demandasGerais =
+      []; // 🧙‍♂️ Armazena todas as demandas para contagem
+  bool _isLoading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _carregarDados();
+  }
+
+  // 🧙‍♂️ Busca Condomínios e Demandas simultaneamente
+  Future<void> _carregarDados() async {
+    try {
+      final responses = await Future.wait([
+        _repository.listarTodos(),
+        _apiService.get('/demandas/'),
+      ]);
+
+      if (!mounted) return;
+
+      setState(() {
+        _condominios = responses[0] as List<CondominioModel>;
+        // Se a API for paginada, pegue ['results'], senão pega a lista direta
+        final demandasResponse = responses[1];
+        _demandasGerais =
+            (demandasResponse is Map && demandasResponse.containsKey('results'))
+            ? demandasResponse['results'] as List<dynamic>
+            : demandasResponse as List<dynamic>;
+
+        _isLoading = false;
+        _error = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+
+      setState(() {
+        _error = e.toString();
+        _isLoading = false;
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final filtro = _searchController.text.trim().toLowerCase();
+
+    final listagem = _condominios.where((condominio) {
+      return condominio.nome.toLowerCase().contains(filtro);
+    }).toList();
 
     return Scaffold(
       appBar: AppBar(
@@ -18,7 +79,6 @@ class BuscarCondominioScreen extends StatelessWidget {
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
         actions: [
-          // 🔘 Botão de troca de tema
           ValueListenableBuilder<ThemeMode>(
             valueListenable: themeNotifier,
             builder: (context, mode, child) {
@@ -47,10 +107,11 @@ class BuscarCondominioScreen extends StatelessWidget {
       ),
       body: Column(
         children: [
-          // Barra de busca
           Padding(
             padding: const EdgeInsets.all(16.0),
             child: TextField(
+              controller: _searchController,
+              onChanged: (_) => setState(() {}),
               decoration: InputDecoration(
                 hintText: 'Digite o nome do condomínio',
                 hintStyle: const TextStyle(
@@ -71,8 +132,6 @@ class BuscarCondominioScreen extends StatelessWidget {
               ),
             ),
           ),
-
-          // --- TÍTULO DA LISTA ---
           Padding(
             padding: const EdgeInsets.symmetric(
               horizontal: 16.0,
@@ -90,54 +149,55 @@ class BuscarCondominioScreen extends StatelessWidget {
               ),
             ),
           ),
-
           const SizedBox(height: 8),
-
-          // --- LISTA DE CONDOMÍNIOS ---
           Expanded(
-            child: ListView(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0),
-              children: const [
-                _CondominioCardItem(
-                  nome: 'Edifício Maria Carolina',
-                  endereco: 'Rua das Acácias, 320',
-                  abertas: 12,
-                  urgentes: 4,
-                  concluidas: 8,
-                ),
-                _CondominioCardItem(
-                  nome: 'Residencial Jardim das Flores',
-                  endereco: 'Av. das Flores, 1050',
-                  abertas: 18,
-                  urgentes: 6,
-                  concluidas: 12,
-                ),
-                _CondominioCardItem(
-                  nome: 'Condomínio Vila do Sol',
-                  endereco: 'Rua do Sol, 200',
-                  abertas: 9,
-                  urgentes: 2,
-                  concluidas: 7,
-                ),
-                _CondominioCardItem(
-                  nome: 'Edifício Parque Central',
-                  endereco: 'Av. Central, 450',
-                  abertas: 15,
-                  urgentes: 3,
-                  concluidas: 12,
-                ),
-                _CondominioCardItem(
-                  nome: 'Residencial das Palmeiras',
-                  endereco: 'Rua das Palmeiras, 780',
-                  abertas: 10,
-                  urgentes: 1,
-                  concluidas: 9,
-                ),
-              ],
-            ),
-          ),
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _error != null
+                ? Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Text(_error!),
+                    ),
+                  )
+                : ListView(
+                    padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                    children: listagem.map((condominio) {
+                      // 🧙‍♂️ Lógica de Contagem de Demandas Específicas deste Condomínio
+                      int abertas = 0;
+                      int urgentes = 0;
+                      int concluidas = 0;
 
-          // --- LEGENDA NO RODAPÉ ---
+                      for (var d in _demandasGerais) {
+                        final cond = d['condominio'];
+                        // Suporta tanto se a API devolver o objeto condomínio quanto apenas o ID numérico
+                        final condId =
+                            (cond is Map<String, dynamic> ? cond['id'] : cond)
+                                as int?;
+
+                        if (condId == condominio.id) {
+                          final status = d['status'] as String? ?? '';
+                          final prioridade = d['prioridade'] as String? ?? '';
+
+                          if (status == 'PENDENTE') abertas++;
+                          if (status == 'CONCLUIDA' || status == 'CONCLUIDO')
+                            concluidas++;
+                          if (prioridade == 'ALTA' || prioridade == 'URGENTE')
+                            urgentes++;
+                        }
+                      }
+
+                      return _CondominioCardItem(
+                        id: condominio.id, // 🧙‍♂️ Agora passamos o ID!
+                        nome: condominio.nome,
+                        endereco: condominio.endereco,
+                        abertas: abertas,
+                        urgentes: urgentes,
+                        concluidas: concluidas,
+                      );
+                    }).toList(),
+                  ),
+          ),
           Container(
             padding: const EdgeInsets.symmetric(
               vertical: 12.0,
@@ -167,9 +227,8 @@ class BuscarCondominioScreen extends StatelessWidget {
   }
 }
 
-// ─── WIDGETS AUXILIARES DA LISTA ─────────────────────────────────────────────
-
 class _CondominioCardItem extends StatelessWidget {
+  final int? id; // 🧙‍♂️ Adicionado o ID
   final String nome;
   final String endereco;
   final int abertas;
@@ -177,6 +236,7 @@ class _CondominioCardItem extends StatelessWidget {
   final int concluidas;
 
   const _CondominioCardItem({
+    this.id,
     required this.nome,
     required this.endereco,
     required this.abertas,
@@ -194,6 +254,7 @@ class _CondominioCardItem extends StatelessWidget {
           context,
           AppRoutes.demandasCondominio,
           arguments: {
+            'id': id, // 🧙‍♂️ ID injetado nos argumentos da rota!
             'nome': nome,
             'endereco': endereco,
             'abertas': abertas,

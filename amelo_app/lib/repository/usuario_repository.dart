@@ -8,22 +8,30 @@ class UsuarioRepository {
 
   UsuarioRepository(this._apiService);
 
-  /// Faz login do usuário e retorna o modelo de usuário com o token JWT
+  /// Faz login do usuário e registra os tokens JWT (Access e Refresh)
   Future<UsuarioModel> login(String username, String password) async {
     final response = await _apiService.post('/auth/token/', {
       'username': username,
       'password': password,
     });
 
-    final token = response['access'] as String?;
-    if (token == null || token.trim().isEmpty) {
+    final accessToken = response['access'] as String?;
+    final refreshToken =
+        response['refresh'] as String?; // 🧙‍♂️ Captura o token de renovação!
+
+    if (accessToken == null || accessToken.trim().isEmpty) {
       throw Exception('Token de autenticação inválido.');
     }
 
-    _apiService.setToken(token);
+    // ⚡ Registra AMBOS os tokens no ApiService para habilitar a renovação automática!
+    _apiService.setTokens(accessToken: accessToken, refreshToken: refreshToken);
 
-    final perfil = await _apiService.get('/auth/me');
-    final usuario = UsuarioModel.fromJson(perfil).copyWith(token: token);
+    final perfil = await _apiService.get('/auth/me/');
+
+    final usuario = UsuarioModel.fromJson(perfil).copyWith(token: accessToken);
+
+    _apiService.setUserRole(usuario.perfil);
+    _apiService.setSenhaRedefinida(perfil['senha_redefinida'] == true);
 
     return usuario;
   }
@@ -32,9 +40,9 @@ class UsuarioRepository {
     _apiService.clearToken();
   }
 
-  /// Obtem o perfil do usuário logado
+  /// Obtém o perfil do usuário logado
   Future<UsuarioModel> obterPerfil() async {
-    final data = await _apiService.get('/auth/me');
+    final data = await _apiService.get('/auth/me/');
     return UsuarioModel.fromJson(data);
   }
 }

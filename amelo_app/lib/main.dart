@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'theme.dart';
 import 'app_routes.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(AmeloApp());
 }
 

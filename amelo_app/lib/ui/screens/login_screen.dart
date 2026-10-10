@@ -66,13 +66,11 @@ class _LoginScreenState extends State<LoginScreen> {
 
                 const SizedBox(height: 20),
 
-                // --- BRANCO/LOGO AMELO ---
-                Icon(
-                  Icons.domain_rounded,
-                  size: 64,
-                  color: theme.brightness == Brightness.dark
-                      ? AmeloTheme.primaryGold
-                      : AmeloTheme.primaryNavy,
+                // --- LOGO AMELO ---
+                Image.asset(
+                  'assets/images/amelo_logo_transparent.png',
+                  width: 96,
+                  height: 96,
                 ),
                 const SizedBox(height: 12),
                 Text(

@@ -10,7 +10,7 @@ class ProfissionalRepository {
 
   /// Lista todos os profissionais cadastrados
   Future<List<ProfissionalModel>> listarTodos() async {
-    final List<dynamic> data = await _apiService.get('/profissionais');
+    final List<dynamic> data = await _apiService.get('/profissionais/');
     return data.map((json) => ProfissionalModel.fromJson(json)).toList();
   }
 
@@ -20,7 +20,7 @@ class ProfissionalRepository {
     required String especialidade,
     String? telefone,
   }) async {
-    final data = await _apiService.post('/profissionais', {
+    final data = await _apiService.post('/profissionais/', {
       'nome': nome,
       'especialidade': especialidade,
       'telefone': telefone,
@@ -30,7 +30,7 @@ class ProfissionalRepository {
 
   // Deleta um profissional pelo ID
   Future<void> deletar(int id) async {
-    await _apiService.get('/profissionais/$id/deletar');
+    await _apiService.get('/profissionais/$id/deletar/');
   }
 
   // Edita um profissional pelo ID
@@ -40,7 +40,7 @@ class ProfissionalRepository {
     required String especialidade,
     String? telefone,
   }) async {
-    final data = await _apiService.put('/profissionais/$id', {
+    final data = await _apiService.put('/profissionais/$id/', {
       'nome': nome,
       'especialidade': especialidade,
       'telefone': telefone,

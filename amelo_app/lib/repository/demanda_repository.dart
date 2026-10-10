@@ -10,19 +10,19 @@ class DemandaRepository {
 
   Future<List<DemandaModel>> listarTodas({int? condominioId}) async {
     final endpoint = condominioId != null
-        ? '/demandas?condominio_id=$condominioId'
-        : '/demandas';
+        ? '/demandas/?condominio=$condominioId'
+        : '/demandas/';
     final List<dynamic> data = await _apiService.get(endpoint);
     return data.map((json) => DemandaModel.fromJson(json)).toList();
   }
 
   Future<DemandaModel> buscarPorId(int id) async {
-    final data = await _apiService.get('/demandas/$id');
+    final data = await _apiService.get('/demandas/$id/');
     return DemandaModel.fromJson(data);
   }
 
   Future<DemandaModel> criar(Map<String, dynamic> demandaPayload) async {
-    final data = await _apiService.post('/demandas', demandaPayload);
+    final data = await _apiService.post('/demandas/', demandaPayload);
     return DemandaModel.fromJson(data);
   }
 }

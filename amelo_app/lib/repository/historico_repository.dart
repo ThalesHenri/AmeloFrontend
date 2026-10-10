@@ -10,7 +10,7 @@ class HistoricoRepository {
 
   Future<List<HistoricoModel>> listarPorDemanda(int demandaId) async {
     final List<dynamic> data = await _apiService.get(
-      '/demandas/$demandaId/historicos',
+      '/demandas/$demandaId/historicos/',
     );
     return data.map((json) => HistoricoModel.fromJson(json)).toList();
   }
@@ -19,7 +19,7 @@ class HistoricoRepository {
     required int demandaId,
     required String descricao,
   }) async {
-    final data = await _apiService.post('/demandas/$demandaId/historicos', {
+    final data = await _apiService.post('/demandas/$demandaId/historicos/', {
       'descricao': descricao,
     });
     return HistoricoModel.fromJson(data);

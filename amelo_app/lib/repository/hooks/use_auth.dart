@@ -18,9 +18,14 @@ class UseAuth extends ValueNotifier<UsuarioModel?> {
       notifyListeners();
 
       final usuario = await repository.login(username, senha);
+
+      // 1. Valida se veio o token principal
       if (usuario.token == null || usuario.token!.trim().isEmpty) {
         throw Exception('Token de autenticação inválido.');
       }
+
+      // 2. Se o seu UsuarioModel já tem o refreshToken, passe ambos para o ApiService:
+      // Exemplo: ApiService().setTokens(accessToken: usuario.token!, refreshToken: usuario.refreshToken);
 
       value = usuario;
       return true;
