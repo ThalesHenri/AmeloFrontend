@@ -26,6 +26,15 @@ class CondominioRepository {
     return CondominioModel.fromJson(data);
   }
 
+  /// Cadastra quando a tela não precisa do corpo devolvido pela API.
+  Future<void> criarSemLerResposta(CondominioModel condominio) async {
+    await _apiService.post(
+      '/condominios/',
+      condominio.toJson(),
+      decodeResponseBody: false,
+    );
+  }
+
   /// Atualiza os dados de um condomínio existente
   Future<CondominioModel> atualizar(
     int id,
@@ -33,6 +42,18 @@ class CondominioRepository {
   ) async {
     final data = await _apiService.put('/condominios/$id/', payload);
     return CondominioModel.fromJson(data);
+  }
+
+  /// Atualiza sem interpretar o corpo da resposta.
+  Future<void> atualizarSemLerResposta(
+    int id,
+    Map<String, dynamic> payload,
+  ) async {
+    await _apiService.put(
+      '/condominios/$id/',
+      payload,
+      decodeResponseBody: false,
+    );
   }
 
   /// Remove um condomínio do sistema

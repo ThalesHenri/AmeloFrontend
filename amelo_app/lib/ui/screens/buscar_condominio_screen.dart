@@ -63,6 +63,217 @@ class _BuscarCondominioScreenState extends State<BuscarCondominioScreen> {
     }
   }
 
+  Future<void> _editarCondominio(CondominioModel condominio) async {
+    final formKey = GlobalKey<FormState>();
+    final nomeController = TextEditingController(text: condominio.nome);
+    final enderecoController = TextEditingController(text: condominio.endereco);
+    final cidadeController = TextEditingController(text: condominio.cidade);
+    final estadoController = TextEditingController(text: condominio.estado);
+    final cepController = TextEditingController(text: condominio.cep ?? '');
+    final telefoneController = TextEditingController(
+      text: condominio.telefone ?? '',
+    );
+    final emailController = TextEditingController(text: condominio.email ?? '');
+    final observacoesController = TextEditingController(
+      text: condominio.observacoes ?? '',
+    );
+
+    try {
+      final dados = await showDialog<Map<String, String>>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Editar condomínio'),
+          content: SizedBox(
+            width: 420,
+            child: SingleChildScrollView(
+              child: Form(
+                key: formKey,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    _campoEdicao(nomeController, 'Nome', obrigatorio: true),
+                    _campoEdicao(
+                      enderecoController,
+                      'Endereço',
+                      obrigatorio: true,
+                    ),
+                    _campoEdicao(cidadeController, 'Cidade', obrigatorio: true),
+                    _campoEdicao(
+                      estadoController,
+                      'Estado (UF)',
+                      obrigatorio: true,
+                      maxLength: 2,
+                    ),
+                    _campoEdicao(cepController, 'CEP', obrigatorio: true),
+                    _campoEdicao(telefoneController, 'Telefone'),
+                    _campoEdicao(emailController, 'E-mail'),
+                    _campoEdicao(
+                      observacoesController,
+                      'Observações',
+                      maxLines: 3,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancelar'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                if (formKey.currentState!.validate()) {
+                  Navigator.pop(dialogContext, {
+                    'nome': nomeController.text.trim(),
+                    'endereco': enderecoController.text.trim(),
+                    'cidade': cidadeController.text.trim(),
+                    'estado': estadoController.text.trim().toUpperCase(),
+                    'cep': cepController.text.trim(),
+                    'telefone': telefoneController.text.trim(),
+                    'email': emailController.text.trim(),
+                    'observacoes': observacoesController.text.trim(),
+                  });
+                }
+              },
+              child: const Text('Salvar alterações'),
+            ),
+          ],
+        ),
+      );
+
+      if (dados == null) return;
+
+      await _repository.atualizarSemLerResposta(condominio.id, {
+        ...dados,
+        'telefone': dados['telefone']!.isEmpty ? null : dados['telefone'],
+        'email': dados['email']!.isEmpty ? null : dados['email'],
+        'observacoes': dados['observacoes']!.isEmpty
+            ? null
+            : dados['observacoes'],
+      });
+
+      if (!mounted) return;
+      final atualizado = CondominioModel(
+        id: condominio.id,
+        nome: dados['nome']!,
+        endereco: dados['endereco']!,
+        cidade: dados['cidade']!,
+        estado: dados['estado']!,
+        cep: dados['cep'],
+        telefone: dados['telefone'],
+        email: dados['email'],
+        observacoes: dados['observacoes'],
+        imagem: condominio.imagem,
+      );
+      setState(() {
+        final index = _condominios.indexWhere(
+          (item) => item.id == condominio.id,
+        );
+        if (index != -1) _condominios[index] = atualizado;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Condomínio atualizado com sucesso.'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Não foi possível atualizar o condomínio: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      nomeController.dispose();
+      enderecoController.dispose();
+      cidadeController.dispose();
+      estadoController.dispose();
+      cepController.dispose();
+      telefoneController.dispose();
+      emailController.dispose();
+      observacoesController.dispose();
+    }
+  }
+
+  Widget _campoEdicao(
+    TextEditingController controller,
+    String rotulo, {
+    bool obrigatorio = false,
+    int maxLines = 1,
+    int? maxLength,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: TextFormField(
+        controller: controller,
+        maxLines: maxLines,
+        maxLength: maxLength,
+        decoration: InputDecoration(labelText: rotulo),
+        validator: (value) {
+          if (obrigatorio && (value == null || value.trim().isEmpty)) {
+            return 'Campo obrigatório';
+          }
+          if (rotulo == 'Estado (UF)' && value != null && value.length != 2) {
+            return 'Informe a sigla com 2 letras';
+          }
+          return null;
+        },
+      ),
+    );
+  }
+
+  Future<void> _excluirCondominio(CondominioModel condominio) async {
+    final confirmar = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Excluir condomínio?'),
+        content: Text(
+          'Deseja excluir "${condominio.nome}"? Esta ação também excluirá '
+          'permanentemente as demandas vinculadas a este condomínio.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Excluir'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmar != true) return;
+
+    try {
+      await _repository.deletar(condominio.id);
+      if (!mounted) return;
+      setState(() {
+        _condominios.removeWhere((item) => item.id == condominio.id);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Condomínio excluído com sucesso.'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Não foi possível excluir o condomínio: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -188,12 +399,12 @@ class _BuscarCondominioScreenState extends State<BuscarCondominioScreen> {
                       }
 
                       return _CondominioCardItem(
-                        id: condominio.id, // 🧙‍♂️ Agora passamos o ID!
-                        nome: condominio.nome,
-                        endereco: condominio.endereco,
+                        condominio: condominio,
                         abertas: abertas,
                         urgentes: urgentes,
                         concluidas: concluidas,
+                        onEditar: () => _editarCondominio(condominio),
+                        onExcluir: () => _excluirCondominio(condominio),
                       );
                     }).toList(),
                   ),
@@ -228,96 +439,129 @@ class _BuscarCondominioScreenState extends State<BuscarCondominioScreen> {
 }
 
 class _CondominioCardItem extends StatelessWidget {
-  final int? id; // 🧙‍♂️ Adicionado o ID
-  final String nome;
-  final String endereco;
+  final CondominioModel condominio;
   final int abertas;
   final int urgentes;
   final int concluidas;
+  final VoidCallback onEditar;
+  final VoidCallback onExcluir;
 
   const _CondominioCardItem({
-    this.id,
-    required this.nome,
-    required this.endereco,
+    required this.condominio,
     required this.abertas,
     required this.urgentes,
     required this.concluidas,
+    required this.onEditar,
+    required this.onExcluir,
   });
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return GestureDetector(
-      onTap: () {
-        Navigator.pushNamed(
-          context,
-          AppRoutes.demandasCondominio,
-          arguments: {
-            'id': id, // 🧙‍♂️ ID injetado nos argumentos da rota!
-            'nome': nome,
-            'endereco': endereco,
-            'abertas': abertas,
-            'urgentes': urgentes,
-            'concluidas': concluidas,
-          },
-        );
-      },
-      child: Card(
-        margin: const EdgeInsets.only(bottom: 12.0),
-        child: Padding(
-          padding: const EdgeInsets.all(12.0),
-          child: Row(
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(6),
-                child: Container(
-                  width: 50,
-                  height: 50,
-                  color: theme.scaffoldBackgroundColor,
-                  child: const Icon(
-                    Icons.apartment_rounded,
-                    color: AmeloTheme.textSecondary,
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12.0),
+      child: Row(
+        children: [
+          Expanded(
+            child: InkWell(
+              borderRadius: BorderRadius.circular(12),
+              onTap: () {
+                Navigator.pushNamed(
+                  context,
+                  AppRoutes.demandasCondominio,
+                  arguments: {
+                    'id': condominio.id,
+                    'nome': condominio.nome,
+                    'endereco': condominio.endereco,
+                    'abertas': abertas,
+                    'urgentes': urgentes,
+                    'concluidas': concluidas,
+                  },
+                );
+              },
+              child: Padding(
+                padding: const EdgeInsets.all(12.0),
+                child: Row(
                   children: [
-                    Text(
-                      nome,
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.bold,
-                        color: theme.colorScheme.onSurface,
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: Container(
+                        width: 50,
+                        height: 50,
+                        color: theme.scaffoldBackgroundColor,
+                        child: const Icon(
+                          Icons.apartment_rounded,
+                          color: AmeloTheme.textSecondary,
+                        ),
                       ),
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      endereco,
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: AmeloTheme.textSecondary,
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            condominio.nome,
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                              color: theme.colorScheme.onSurface,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            condominio.endereco,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: AmeloTheme.textSecondary,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              _buildPill('$abertas', AmeloTheme.statusAbertas),
+                              const SizedBox(width: 8),
+                              _buildPill('$urgentes', AmeloTheme.statusUrgente),
+                              const SizedBox(width: 8),
+                              _buildPill(
+                                '$concluidas',
+                                AmeloTheme.statusConcluido,
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        _buildPill('$abertas', AmeloTheme.statusAbertas),
-                        const SizedBox(width: 8),
-                        _buildPill('$urgentes', AmeloTheme.statusUrgente),
-                        const SizedBox(width: 8),
-                        _buildPill('$concluidas', AmeloTheme.statusConcluido),
-                      ],
                     ),
                   ],
                 ),
               ),
+            ),
+          ),
+          PopupMenuButton<String>(
+            tooltip: 'Ações do condomínio',
+            onSelected: (acao) {
+              if (acao == 'editar') onEditar();
+              if (acao == 'excluir') onExcluir();
+            },
+            itemBuilder: (context) => const [
+              PopupMenuItem(
+                value: 'editar',
+                child: ListTile(
+                  leading: Icon(Icons.edit_outlined),
+                  title: Text('Editar'),
+                ),
+              ),
+              PopupMenuItem(
+                value: 'excluir',
+                child: ListTile(
+                  leading: Icon(Icons.delete_outline, color: Colors.red),
+                  title: Text('Excluir'),
+                ),
+              ),
             ],
           ),
-        ),
+        ],
       ),
     );
   }

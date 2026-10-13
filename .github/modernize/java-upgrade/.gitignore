@@ -1,0 +1,66 @@
+--- General / OS ---
+
+.DS_Store
+.localized
+Thumbs.db
+*.swp
+*.lock
+
+--- Dart & Flutter ---
+
+.dart_tool/
+.packages
+.pub-cache/
+.pub/
+build/
+flutter_*.png
+
+--- Android ---
+
+.gradle/
+local.properties
+/android/app/release/
+/android/app/debug/
+/android/app/profile/
+
+CRITICAL SECURITY: Keystore e segredos de assinatura (NUNCA envie para o Git)
+
+*.keystore
+*.jks
+*.p12
+key.properties
+
+--- iOS ---
+
+/ios/Flutter/App.framework
+/ios/Flutter/Flutter.framework
+/ios/Flutter/Flutter.podspec
+/ios/Flutter/Generated.xcconfig
+/ios/Flutter/app.flttmp
+/ios/Runner.xcodeproj/project.xcworkspace
+/ios/Runner.xcworkspace
+/Pods/
+/Podfile.lock
+
+--- Web ---
+
+/web/icons/
+
+--- IDEs e Editores ---
+
+.idea/
+*.iml
+*.iws
+.vscode/
+.history/
+
+--- Environment variables & Secrets ---
+
+.env
+.env.*
+!.env.example
+
+--- Symbols / Debugging ---
+
+debug-info/
+*.symbols

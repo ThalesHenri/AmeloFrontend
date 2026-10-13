@@ -105,6 +105,7 @@ class ApiService {
     Future<http.Response> Function() chamadaHttp, {
     required String metodo,
     required Uri uri,
+    bool decodeResponseBody = true,
   }) async {
     final endpointAuth =
         uri.path.endsWith('/auth/token/') || uri.path.endsWith('/auth/me/');
@@ -133,11 +134,19 @@ class ApiService {
           if (endpointAuth) {
             _registrarRespostaAuth(metodo, uri, retryResponse, tentativa: 2);
           }
-          return _processResponse(retryResponse, contexto: contextoRequisicao);
+          return _processResponse(
+            retryResponse,
+            contexto: contextoRequisicao,
+            decodeBody: decodeResponseBody,
+          );
         }
       }
 
-      return _processResponse(response, contexto: contextoRequisicao);
+      return _processResponse(
+        response,
+        contexto: contextoRequisicao,
+        decodeBody: decodeResponseBody,
+      );
     } on TimeoutException {
       throw Exception('Tempo excedido na comunicação com a API.');
     } on SocketException {
@@ -239,22 +248,32 @@ class ApiService {
   }
 
   /// Requisição POST
-  Future<dynamic> post(String endpoint, Map<String, dynamic> body) async {
+  Future<dynamic> post(
+    String endpoint,
+    Map<String, dynamic> body, {
+    bool decodeResponseBody = true,
+  }) async {
     final uri = Uri.parse('$baseUrl$endpoint');
     return _executarComRetry(
       () => http.post(uri, headers: _headers, body: jsonEncode(body)),
       metodo: 'POST',
       uri: uri,
+      decodeResponseBody: decodeResponseBody,
     );
   }
 
   /// Requisição PUT
-  Future<dynamic> put(String endpoint, Map<String, dynamic> body) async {
+  Future<dynamic> put(
+    String endpoint,
+    Map<String, dynamic> body, {
+    bool decodeResponseBody = true,
+  }) async {
     final uri = Uri.parse('$baseUrl$endpoint');
     return _executarComRetry(
       () => http.put(uri, headers: _headers, body: jsonEncode(body)),
       metodo: 'PUT',
       uri: uri,
+      decodeResponseBody: decodeResponseBody,
     );
   }
 
@@ -304,12 +323,28 @@ class ApiService {
   }
 
   /// Processa o status code e decodifica o JSON retornado pela API
-  dynamic _processResponse(http.Response response, {String? contexto}) {
+  dynamic _processResponse(
+    http.Response response, {
+    String? contexto,
+    bool decodeBody = true,
+  }) {
     final statusCode = response.statusCode;
 
     if (statusCode >= 200 && statusCode < 300) {
+      if (!decodeBody) return null;
       if (response.body.isEmpty) return null;
-      return jsonDecode(response.body);
+      try {
+        return jsonDecode(response.body);
+      } on FormatException catch (error) {
+        final contentType = response.headers['content-type'] ?? 'não informado';
+        final offset = error.offset?.toString() ?? 'desconhecido';
+        throw FormatException(
+          'A API retornou uma resposta que não é JSON válido '
+          '(HTTP $statusCode, Content-Type: $contentType, '
+          '${response.body.length} caracteres; erro próximo ao caractere '
+          '$offset). O conteúdo da resposta foi omitido.',
+        );
+      }
     }
 
     switch (statusCode) {

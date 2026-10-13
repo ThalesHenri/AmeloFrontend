@@ -268,7 +268,7 @@ class _CadastrarCondominioScreenState extends State<CadastrarCondominioScreen> {
                                 observacoes: _observacoesController.text.trim(),
                               );
 
-                              await _repository.criar(payload);
+                              await _repository.criarSemLerResposta(payload);
 
                               if (!mounted) return;
 
