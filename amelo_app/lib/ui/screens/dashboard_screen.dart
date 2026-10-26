@@ -142,6 +142,19 @@ class _DashboardScreenState extends State<DashboardScreen> {
     _redirecionarParaLogin();
   }
 
+  void _abrirDemandas(String filtro, String titulo) {
+    Navigator.pushNamed(
+      context,
+      AppRoutes.demandasCondominio,
+      arguments: {
+        'id': null,
+        'nome': titulo,
+        'endereco': 'Filtro de Demandas',
+        'filtro': filtro,
+      },
+    );
+  }
+
   void _redirecionarParaLogin() {
     Navigator.pushNamedAndRemoveUntil(
       context,
@@ -307,8 +320,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                   TextButton(
                                     onPressed: _mostrarDialogoRedefinirSenha,
                                     style: TextButton.styleFrom(
-                                      backgroundColor:
-                                          AmeloTheme.statusUrgente,
+                                      backgroundColor: AmeloTheme.statusUrgente,
                                       foregroundColor: Colors.white,
                                       padding: const EdgeInsets.symmetric(
                                         horizontal: 12,
@@ -374,24 +386,40 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 valor: total.toString(),
                                 icone: Icons.crop_original_rounded,
                                 corIcone: Colors.blueAccent,
+                                onTap: () => _abrirDemandas(
+                                  'todas',
+                                  'Todas as Demandas',
+                                ),
                               ),
                               _StatusCard(
                                 titulo: 'Abertas',
                                 valor: abertas.toString(),
                                 icone: Icons.crop_square_rounded,
                                 corIcone: AmeloTheme.statusAbertas,
+                                onTap: () => _abrirDemandas(
+                                  'abertas',
+                                  'Demandas Abertas',
+                                ),
                               ),
                               _StatusCard(
                                 titulo: 'Urgentes',
                                 valor: urgentes.toString(),
                                 icone: Icons.error_outline_rounded,
                                 corIcone: AmeloTheme.statusUrgente,
+                                onTap: () => _abrirDemandas(
+                                  'urgentes',
+                                  'Demandas Urgentes',
+                                ),
                               ),
                               _StatusCard(
                                 titulo: 'Em andamento',
                                 valor: andamento.toString(),
                                 icone: Icons.autorenew_rounded,
                                 corIcone: AmeloTheme.statusAndamento,
+                                onTap: () => _abrirDemandas(
+                                  'em_andamento',
+                                  'Demandas em Andamento',
+                                ),
                               ),
                             ],
                           ),
@@ -402,6 +430,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             valor: concluidas.toString(),
                             icone: Icons.check_circle_outline_rounded,
                             corIcone: AmeloTheme.statusConcluido,
+                            onTap: () => _abrirDemandas(
+                              'concluidas',
+                              'Demandas Concluídas',
+                            ),
                           ),
 
                           const SizedBox(height: 24),
@@ -539,49 +571,35 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                 },
                               ),
                               // 🔄 Ação alternada conforme o papel do usuário
-                              if (isGestor)
-                                _ActionButton(
-                                  titulo: 'Buscar\nCondomínio',
-                                  icone: Icons.search,
-                                  corFundo: AmeloTheme.primaryNavy,
-                                  onTap: () {
-                                    Navigator.pushNamed(
-                                      context,
-                                      AppRoutes.buscarCondominio,
-                                    );
-                                  },
-                                )
-                              else
-                                _ActionButton(
-                                  titulo: 'Demandas\nAbertas',
-                                  icone: Icons.pending_actions_rounded,
-                                  corFundo: AmeloTheme.statusAbertas,
-                                  onTap: () {
-                                    Navigator.pushNamed(
-                                      context,
-                                      AppRoutes.demandasCondominio,
-                                      arguments: {
-                                        'id': null,
-                                        'nome': 'Demandas Abertas',
-                                        'endereco': 'Filtro de Demandas',
-                                      },
-                                    );
-                                  },
+                              _ActionButton(
+                                titulo: 'Buscar\nCondomínio',
+                                icone: Icons.search,
+                                corFundo: AmeloTheme.primaryNavy,
+                                onTap: () => Navigator.pushNamed(
+                                  context,
+                                  AppRoutes.buscarCondominio,
                                 ),
-                              // 🔒 Ações exclusivas do Gestor
+                              ),
+                              _ActionButton(
+                                titulo: 'Cadastrar\nCondomínio',
+                                icone: Icons.domain_add,
+                                corFundo: AmeloTheme.statusConcluido,
+                                onTap: () => Navigator.pushNamed(
+                                  context,
+                                  AppRoutes.cadastrarCondominio,
+                                ),
+                              ),
+                              _ActionButton(
+                                titulo: 'Gerenciar\nProfissionais',
+                                icone: Icons.handyman_outlined,
+                                corFundo: AmeloTheme.primaryGold,
+                                onTap: () => Navigator.pushNamed(
+                                  context,
+                                  AppRoutes.gerenciarProfissionais,
+                                ),
+                              ),
+                              // 🔒 Ação exclusiva do Gestor
                               if (isGestor) ...[
-                                _ActionButton(
-                                  titulo: 'Cadastrar\nCondomínio',
-                                  icone: Icons.domain_add,
-                                  corFundo: AmeloTheme.statusConcluido,
-                                  badgeText: 'NOVO',
-                                  onTap: () {
-                                    Navigator.pushNamed(
-                                      context,
-                                      AppRoutes.cadastrarCondominio,
-                                    );
-                                  },
-                                ),
                                 _ActionButton(
                                   titulo: 'Gerenciar\nSupervisores',
                                   icone: Icons.supervisor_account_rounded,
@@ -616,7 +634,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
         setState(() {});
       });
     }
-
   }
 }
 
@@ -700,7 +717,8 @@ class _RedefinirSenhaDialogState extends State<_RedefinirSenhaDialog> {
                 controller: _senhaAtualController,
                 obscureText: true,
                 decoration: const InputDecoration(labelText: 'Senha atual'),
-                validator: (value) => _required(value, 'Informe a senha atual.'),
+                validator: (value) =>
+                    _required(value, 'Informe a senha atual.'),
               ),
               TextFormField(
                 controller: _novaSenhaController,
@@ -769,12 +787,14 @@ class _StatusCard extends StatelessWidget {
   final String valor;
   final IconData icone;
   final Color corIcone;
+  final VoidCallback? onTap;
 
   const _StatusCard({
     required this.titulo,
     required this.valor,
     required this.icone,
     required this.corIcone,
+    this.onTap,
   });
 
   @override
@@ -783,34 +803,38 @@ class _StatusCard extends StatelessWidget {
 
     return Card(
       color: theme.colorScheme.surface,
-      child: Padding(
-        padding: const EdgeInsets.all(12.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            Row(children: [Icon(icone, color: corIcone, size: 20)]),
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  titulo,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: AmeloTheme.textSecondary,
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(12.0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(children: [Icon(icone, color: corIcone, size: 20)]),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    titulo,
+                    style: const TextStyle(
+                      fontSize: 11,
+                      color: AmeloTheme.textSecondary,
+                    ),
                   ),
-                ),
-                Text(
-                  valor,
-                  style: TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                    color: theme.colorScheme.onSurface,
+                  Text(
+                    valor,
+                    style: TextStyle(
+                      fontSize: 22,
+                      fontWeight: FontWeight.bold,
+                      color: theme.colorScheme.onSurface,
+                    ),
                   ),
-                ),
-              ],
-            ),
-          ],
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -883,14 +907,12 @@ class _ActionButton extends StatelessWidget {
   final IconData icone;
   final Color corFundo;
   final VoidCallback onTap;
-  final String? badgeText;
 
   const _ActionButton({
     required this.titulo,
     required this.icone,
     required this.corFundo,
     required this.onTap,
-    this.badgeText,
   });
 
   @override
@@ -924,26 +946,6 @@ class _ActionButton extends StatelessWidget {
               ],
             ),
           ),
-          if (badgeText != null)
-            Positioned(
-              top: -8,
-              right: -8,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                decoration: BoxDecoration(
-                  color: AmeloTheme.primaryGold,
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Text(
-                  badgeText!,
-                  style: const TextStyle(
-                    color: Colors.black,
-                    fontSize: 9,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-            ),
         ],
       ),
     );

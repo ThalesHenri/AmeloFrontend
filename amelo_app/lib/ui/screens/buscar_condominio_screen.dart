@@ -403,6 +403,7 @@ class _BuscarCondominioScreenState extends State<BuscarCondominioScreen> {
                         abertas: abertas,
                         urgentes: urgentes,
                         concluidas: concluidas,
+                        canManage: _apiService.isGestor,
                         onEditar: () => _editarCondominio(condominio),
                         onExcluir: () => _excluirCondominio(condominio),
                       );
@@ -443,6 +444,7 @@ class _CondominioCardItem extends StatelessWidget {
   final int abertas;
   final int urgentes;
   final int concluidas;
+  final bool canManage;
   final VoidCallback onEditar;
   final VoidCallback onExcluir;
 
@@ -451,6 +453,7 @@ class _CondominioCardItem extends StatelessWidget {
     required this.abertas,
     required this.urgentes,
     required this.concluidas,
+    required this.canManage,
     required this.onEditar,
     required this.onExcluir,
   });
@@ -538,29 +541,30 @@ class _CondominioCardItem extends StatelessWidget {
               ),
             ),
           ),
-          PopupMenuButton<String>(
-            tooltip: 'Ações do condomínio',
-            onSelected: (acao) {
-              if (acao == 'editar') onEditar();
-              if (acao == 'excluir') onExcluir();
-            },
-            itemBuilder: (context) => const [
-              PopupMenuItem(
-                value: 'editar',
-                child: ListTile(
-                  leading: Icon(Icons.edit_outlined),
-                  title: Text('Editar'),
+          if (canManage)
+            PopupMenuButton<String>(
+              tooltip: 'Ações do condomínio',
+              onSelected: (acao) {
+                if (acao == 'editar') onEditar();
+                if (acao == 'excluir') onExcluir();
+              },
+              itemBuilder: (context) => const [
+                PopupMenuItem(
+                  value: 'editar',
+                  child: ListTile(
+                    leading: Icon(Icons.edit_outlined),
+                    title: Text('Editar'),
+                  ),
                 ),
-              ),
-              PopupMenuItem(
-                value: 'excluir',
-                child: ListTile(
-                  leading: Icon(Icons.delete_outline, color: Colors.red),
-                  title: Text('Excluir'),
+                PopupMenuItem(
+                  value: 'excluir',
+                  child: ListTile(
+                    leading: Icon(Icons.delete_outline, color: Colors.red),
+                    title: Text('Excluir'),
+                  ),
                 ),
-              ),
-            ],
-          ),
+              ],
+            ),
         ],
       ),
     );

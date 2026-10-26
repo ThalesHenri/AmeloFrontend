@@ -32,8 +32,7 @@ class _NovaDemandaScreenState extends State<NovaDemandaScreen> {
   bool _initDone = false;
   String? _error;
 
-  bool get _isGestor => ApiService().isGestor;
-  bool get _podeEditarTudo => !_isEditing || _isGestor;
+  bool get _podeEditarTudo => true;
 
   String _statusSelecionado = 'PENDENTE';
   DateTime? _previsaoConclusao; // 👈 NOVO

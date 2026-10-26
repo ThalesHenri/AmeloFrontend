@@ -1,6 +1,9 @@
 // lib/ui/screens/gerenciar_profissionais_screen.dart
 
 import 'package:flutter/material.dart';
+import '../../repository/models/profissional_model.dart';
+import '../../repository/profissional_repository.dart';
+import '../../repository/services/api_service.dart';
 import '../../theme.dart';
 
 class GerenciarProfissionaisScreen extends StatefulWidget {
@@ -13,33 +16,82 @@ class GerenciarProfissionaisScreen extends StatefulWidget {
 
 class _GerenciarProfissionaisScreenState
     extends State<GerenciarProfissionaisScreen> {
-  // Lista simulada alinhada à classe Profissional
-  final List<Map<String, String>> _profissionais = [
-    {
-      'id': '1',
-      'nome': 'João Pedro',
-      'especialidade': 'Hidráulica',
-      'telefone': '(11) 91111-2222',
-    },
-    {
-      'id': '2',
-      'nome': 'Marcos Souza',
-      'especialidade': 'Elétrica',
-      'telefone': '(11) 93333-4444',
-    },
-    {
-      'id': '3',
-      'nome': 'Roberto Alves',
-      'especialidade': 'Pintura & Alvenaria',
-      'telefone': '(11) 95555-6666',
-    },
-    {
-      'id': '4',
-      'nome': 'Lucas Mendes',
-      'especialidade': 'Serralheria',
-      'telefone': '(11) 97777-8888',
-    },
-  ];
+  final _repository = ProfissionalRepository(ApiService());
+  List<ProfissionalModel> _profissionais = [];
+  Map<int, int> _demandasConcluidas = {};
+  bool _isLoading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _carregarDados();
+  }
+
+  Future<void> _carregarDados() async {
+    try {
+      final profissionais = await _repository.listarTodos();
+      Map<int, int> metricas;
+      try {
+        final resposta = await ApiService().get(
+          '/dashboard/metricas-profissionais/',
+        );
+        metricas = _mapearMetricas(resposta);
+      } catch (_) {
+        // Mantém a tela compatível com ambientes onde a rota ainda não foi
+        // publicada; calcula a mesma contagem a partir das demandas existentes.
+        try {
+          final demandas = await ApiService().get('/demandas/');
+          metricas = _contarDemandasConcluidas(demandas);
+        } catch (_) {
+          metricas = {};
+        }
+      }
+      if (!mounted) return;
+      setState(() {
+        _profissionais = profissionais;
+        _demandasConcluidas = metricas;
+        _isLoading = false;
+        _error = null;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.toString();
+        _isLoading = false;
+      });
+    }
+  }
+
+  Map<int, int> _mapearMetricas(dynamic resposta) {
+    final itens = resposta is Map && resposta['results'] is List
+        ? resposta['results'] as List
+        : resposta as List;
+    return {
+      for (final item in itens)
+        (item['id'] as num).toInt(): (item['demandas_concluidas'] as num)
+            .toInt(),
+    };
+  }
+
+  Map<int, int> _contarDemandasConcluidas(dynamic resposta) {
+    final demandas = resposta is Map && resposta['results'] is List
+        ? resposta['results'] as List
+        : resposta as List;
+    final contagem = <int, int>{};
+    for (final item in demandas) {
+      if ((item['status'] as String? ?? '').toUpperCase() != 'CONCLUIDA') {
+        continue;
+      }
+      final profissional = item['profissionalAcionado'];
+      final id = profissional is Map ? profissional['id'] : profissional;
+      if (id is num) {
+        final profissionalId = id.toInt();
+        contagem[profissionalId] = (contagem[profissionalId] ?? 0) + 1;
+      }
+    }
+    return contagem;
+  }
 
   void _abrirModalNovoProfissional(BuildContext context, ThemeData theme) {
     final nomeController = TextEditingController();
@@ -101,7 +153,7 @@ class _GerenciarProfissionaisScreenState
               controller: telefoneController,
               keyboardType: TextInputType.phone,
               decoration: InputDecoration(
-                labelText: 'Telefone de contato',
+                labelText: 'Telefone de contato *',
                 filled: true,
                 fillColor: theme.scaffoldBackgroundColor,
                 border: OutlineInputBorder(
@@ -120,18 +172,25 @@ class _GerenciarProfissionaisScreenState
                     borderRadius: BorderRadius.circular(8),
                   ),
                 ),
-                onPressed: () {
-                  if (nomeController.text.isNotEmpty &&
-                      especialidadeController.text.isNotEmpty) {
-                    setState(() {
-                      _profissionais.add({
-                        'id': '${_profissionais.length + 1}',
-                        'nome': nomeController.text,
-                        'especialidade': especialidadeController.text,
-                        'telefone': telefoneController.text,
-                      });
-                    });
-                    Navigator.pop(ctx);
+                onPressed: () async {
+                  if (nomeController.text.trim().isNotEmpty &&
+                      especialidadeController.text.trim().isNotEmpty &&
+                      telefoneController.text.trim().isNotEmpty) {
+                    try {
+                      await _repository.criar(
+                        nome: nomeController.text.trim(),
+                        especialidade: especialidadeController.text.trim(),
+                        telefone: telefoneController.text.trim(),
+                      );
+                      if (!mounted) return;
+                      Navigator.pop(ctx);
+                      await _carregarDados();
+                    } catch (e) {
+                      if (!mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Falha ao cadastrar: $e')),
+                      );
+                    }
                   }
                 },
                 child: const Text(
@@ -209,107 +268,134 @@ class _GerenciarProfissionaisScreenState
             ),
           ),
           Expanded(
-            child: ListView.builder(
-              padding: const EdgeInsets.symmetric(horizontal: 16.0),
-              itemCount: _profissionais.length,
-              itemBuilder: (context, index) {
-                final prof = _profissionais[index];
-                return Card(
-                  margin: const EdgeInsets.only(bottom: 12),
-                  child: ListTile(
-                    contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 16,
-                      vertical: 8,
-                    ),
-                    leading: Container(
-                      width: 44,
-                      height: 44,
-                      decoration: BoxDecoration(
-                        color: AmeloTheme.primaryGold.withOpacity(0.2),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Icon(
-                        Icons.construction_rounded,
-                        color: AmeloTheme.primaryNavy,
-                      ),
-                    ),
-                    title: Text(
-                      prof['nome']!,
-                      style: TextStyle(
-                        fontWeight: FontWeight.bold,
-                        color: theme.colorScheme.onSurface,
-                      ),
-                    ),
-                    subtitle: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const SizedBox(height: 4),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 2,
+            child: _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _error != null
+                ? Center(child: Text(_error!))
+                : _profissionais.isEmpty
+                ? const Center(child: Text('Nenhum profissional cadastrado.'))
+                : ListView.builder(
+                    padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                    itemCount: _profissionais.length,
+                    itemBuilder: (context, index) {
+                      final prof = _profissionais[index];
+                      return Card(
+                        margin: const EdgeInsets.only(bottom: 12),
+                        child: ListTile(
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 8,
                           ),
-                          decoration: BoxDecoration(
-                            color: theme.dividerColor.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(4),
-                          ),
-                          child: Text(
-                            prof['especialidade']!,
-                            style: const TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.bold,
+                          leading: Container(
+                            width: 44,
+                            height: 44,
+                            decoration: BoxDecoration(
+                              color: AmeloTheme.primaryGold.withOpacity(0.2),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Icon(
+                              Icons.construction_rounded,
                               color: AmeloTheme.primaryNavy,
                             ),
                           ),
-                        ),
-                        const SizedBox(height: 4),
-                        Row(
-                          children: [
-                            const Icon(
-                              Icons.phone_outlined,
-                              size: 14,
-                              color: AmeloTheme.textSecondary,
+                          title: Text(
+                            prof.nome,
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              color: theme.colorScheme.onSurface,
                             ),
-                            const SizedBox(width: 4),
-                            Text(
-                              prof['telefone']!,
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: AmeloTheme.textSecondary,
+                          ),
+                          subtitle: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const SizedBox(height: 4),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: theme.dividerColor.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  prof.especialidade,
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: AmeloTheme.primaryNavy,
+                                  ),
+                                ),
                               ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                    trailing: PopupMenuButton<String>(
-                      icon: const Icon(
-                        Icons.more_vert,
-                        color: AmeloTheme.textSecondary,
-                      ),
-                      onSelected: (val) {
-                        if (val == 'remover') {
-                          setState(() => _profissionais.removeAt(index));
-                        }
-                      },
-                      itemBuilder: (ctx) => [
-                        const PopupMenuItem(
-                          value: 'editar',
-                          child: Text('Editar'),
-                        ),
-                        const PopupMenuItem(
-                          value: 'remover',
-                          child: Text(
-                            'Remover',
-                            style: TextStyle(color: Colors.red),
+                              const SizedBox(height: 4),
+                              Row(
+                                children: [
+                                  const Icon(
+                                    Icons.phone_outlined,
+                                    size: 14,
+                                    color: AmeloTheme.textSecondary,
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Text(
+                                    prof.telefone ?? 'Telefone não informado',
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: AmeloTheme.textSecondary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Text(
+                                    '${_demandasConcluidas[prof.id] ?? 0}',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  const Text(
+                                    'concluídas',
+                                    style: TextStyle(fontSize: 10),
+                                  ),
+                                ],
+                              ),
+                              PopupMenuButton<String>(
+                                onSelected: (value) async {
+                                  if (value != 'remover') return;
+                                  try {
+                                    await _repository.deletar(prof.id);
+                                    await _carregarDados();
+                                  } catch (e) {
+                                    if (!mounted) return;
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(
+                                        content: Text('Falha ao remover: $e'),
+                                      ),
+                                    );
+                                  }
+                                },
+                                itemBuilder: (context) => const [
+                                  PopupMenuItem(
+                                    value: 'remover',
+                                    child: Text(
+                                      'Remover',
+                                      style: TextStyle(color: Colors.red),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
                           ),
                         ),
-                      ],
-                    ),
+                      );
+                    },
                   ),
-                );
-              },
-            ),
           ),
         ],
       ),

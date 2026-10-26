@@ -10,7 +10,10 @@ class CondominioRepository {
 
   /// Lista todos os condomínios cadastrados
   Future<List<CondominioModel>> listarTodos() async {
-    final List<dynamic> data = await _apiService.get('/condominios/');
+    final response = await _apiService.get('/condominios/');
+    final List<dynamic> data = response is Map && response['results'] is List
+        ? response['results'] as List<dynamic>
+        : response as List<dynamic>;
     return data.map((json) => CondominioModel.fromJson(json)).toList();
   }
 

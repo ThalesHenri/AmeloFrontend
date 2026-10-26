@@ -19,6 +19,7 @@ class _DemandasCondominioScreenState extends State<DemandasCondominioScreen> {
   String? _error;
   List<dynamic> _demandas = [];
   bool _dadosCarregados = false;
+  String? _filtro;
 
   int _abertas = 0;
   int _urgentes = 0;
@@ -34,6 +35,7 @@ class _DemandasCondominioScreenState extends State<DemandasCondominioScreen> {
               as Map<String, dynamic>?) ??
           {};
       final id = args['id'] as int?;
+      _filtro = args['filtro'] as String?;
       _carregarDemandas(id);
       _dadosCarregados = true;
     }
@@ -52,12 +54,29 @@ class _DemandasCondominioScreenState extends State<DemandasCondominioScreen> {
           ? data['results'] as List<dynamic>
           : data as List<dynamic>;
 
+      final filtradas = lista.where((item) {
+        final status = (item['status'] as String? ?? '').toUpperCase();
+        final urgencia = (item['urgencia'] as String? ?? '').toUpperCase();
+        switch (_filtro) {
+          case 'abertas':
+            return status == 'PENDENTE';
+          case 'urgentes':
+            return urgencia == 'URGENTE' || urgencia == 'ALTA';
+          case 'em_andamento':
+            return status == 'EM_ANDAMENTO';
+          case 'concluidas':
+            return status == 'CONCLUIDA';
+          default:
+            return true;
+        }
+      }).toList();
+
       int abertas = 0;
       int urgentes = 0;
       int concluidas = 0;
       int emAndamento = 0;
 
-      for (var item in lista) {
+      for (var item in filtradas) {
         final status = (item['status'] as String? ?? '').toUpperCase();
         final urgencia = (item['urgencia'] as String? ?? '').toUpperCase();
         final dataAberturaStr = item['dataAbertura'] as String?;
@@ -78,7 +97,8 @@ class _DemandasCondominioScreenState extends State<DemandasCondominioScreen> {
         }
 
         // Calcular tempo de resolução para demandas concluidas
-        if (status == 'CONCLUIDA' && dataAberturaStr != null &&
+        if (status == 'CONCLUIDA' &&
+            dataAberturaStr != null &&
             dataConclusaoStr != null) {
           try {
             final aberta = DateTime.parse(dataAberturaStr);
@@ -106,8 +126,10 @@ class _DemandasCondominioScreenState extends State<DemandasCondominioScreen> {
         }
 
         // Verificar conformidade com o prazo
-        if (status == 'CONCLUIDA' && previsaoStr != null &&
-            previsaoStr.isNotEmpty && dataConclusaoStr != null) {
+        if (status == 'CONCLUIDA' &&
+            previsaoStr != null &&
+            previsaoStr.isNotEmpty &&
+            dataConclusaoStr != null) {
           try {
             final concluida = DateTime.parse(dataConclusaoStr);
             final previsao = DateTime.parse(previsaoStr);
@@ -120,7 +142,7 @@ class _DemandasCondominioScreenState extends State<DemandasCondominioScreen> {
       }
 
       setState(() {
-        _demandas = lista;
+        _demandas = filtradas;
         _abertas = abertas;
         _emAndamento = emAndamento;
         _urgentes = urgentes;
@@ -290,8 +312,7 @@ class _DemandasCondominioScreenState extends State<DemandasCondominioScreen> {
 
                       final status = _statusLabel(statusRaw);
                       final cor = _statusColor(statusRaw);
-                      final tempoResolucao =
-                          item['tempoResolucao'] as String?;
+                      final tempoResolucao = item['tempoResolucao'] as String?;
                       final foraDoPrazo = item['foraDoPrazo'] as bool?;
 
                       return Card(
@@ -384,32 +405,33 @@ class _DemandasCondominioScreenState extends State<DemandasCondominioScreen> {
                                           vertical: 2,
                                         ),
                                         decoration: BoxDecoration(
-                                          color: (foraDoPrazo == true
-                                                  ? AmeloTheme.statusUrgente
-                                                  : foraDoPrazo == false
+                                          color:
+                                              (foraDoPrazo == true
+                                                      ? AmeloTheme.statusUrgente
+                                                      : foraDoPrazo == false
                                                       ? AmeloTheme
-                                                          .statusConcluido
+                                                            .statusConcluido
                                                       : AmeloTheme
-                                                          .textSecondary)
-                                              .withOpacity(0.12),
-                                          borderRadius:
-                                              BorderRadius.circular(999),
+                                                            .textSecondary)
+                                                  .withOpacity(0.12),
+                                          borderRadius: BorderRadius.circular(
+                                            999,
+                                          ),
                                         ),
                                         child: Text(
                                           foraDoPrazo == true
                                               ? 'Fora do prazo'
                                               : foraDoPrazo == false
-                                                  ? 'No prazo'
-                                                  : 'Sem prazo',
+                                              ? 'No prazo'
+                                              : 'Sem prazo',
                                           style: TextStyle(
                                             fontSize: 9,
                                             fontWeight: FontWeight.bold,
                                             color: foraDoPrazo == true
                                                 ? AmeloTheme.statusUrgente
                                                 : foraDoPrazo == false
-                                                    ? AmeloTheme
-                                                        .statusConcluido
-                                                    : AmeloTheme.textSecondary,
+                                                ? AmeloTheme.statusConcluido
+                                                : AmeloTheme.textSecondary,
                                           ),
                                         ),
                                       ),
