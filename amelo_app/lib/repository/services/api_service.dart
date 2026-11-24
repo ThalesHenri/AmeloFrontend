@@ -12,17 +12,28 @@ class ApiService {
     if (envBaseUrl.trim().isNotEmpty) {
       return envBaseUrl;
     }
-    return 'https://amelo-api.com.br/api/v1';
+    return 'http://192.168.0.217:8080/api/v1';
   }
 
-  ApiService._();
+  static String get professionalPortalUrl {
+    final apiUri = Uri.parse(baseUrl);
+    return apiUri
+        .replace(path: '/profissional/entrar/', query: null, fragment: null)
+        .toString();
+  }
+
+  ApiService._({http.Client? client}) : _client = client ?? http.Client();
+  @visibleForTesting
+  ApiService.forTesting(http.Client client) : _client = client;
+
   static final ApiService _instance = ApiService._();
   factory ApiService() => _instance;
 
+  final http.Client _client;
   String? _authToken;
   String? _refreshToken; // Guardará a chave de renovação
   String? _userRole; // Guardará a role do usuário
-  bool _isRefreshing = false;
+  Future<bool>? _refreshFuture;
   bool _senhaRedefinida = false;
 
   bool get isAuthenticated =>
@@ -32,6 +43,20 @@ class ApiService {
   bool get isGestor => _userRole == 'GESTOR';
   bool get isSupervisor => _userRole == 'SUPERVISOR';
   bool get senhaRedefinida => _senhaRedefinida;
+
+  Map<String, String> get mediaHeaders => {
+    'Accept': 'image/*',
+    if (_authToken != null) 'Authorization': '******',
+  };
+
+  Uri resolveMediaUri(String value) {
+    final uri = Uri.tryParse(value);
+    if (uri != null && uri.hasScheme) return uri;
+
+    final apiUri = Uri.parse(baseUrl);
+    final origin = apiUri.replace(path: '/', query: null, fragment: null);
+    return origin.resolve(value.startsWith('/') ? value : '/$value');
+  }
 
   /// Define os tokens JWT obtidos no login
   void setTokens({required String accessToken, String? refreshToken}) {
@@ -69,35 +94,67 @@ class ApiService {
     if (_authToken != null) 'Authorization': 'Bearer $_authToken',
   };
 
-  /// Função interna que tenta renovar o Access Token usando o Refresh Token
-  Future<bool> _tentarRenovarToken() async {
-    if (_refreshToken == null || _isRefreshing) return false;
+  Future<bool> _tentarRenovarToken() {
+    final refreshEmAndamento = _refreshFuture;
+    if (refreshEmAndamento != null) return refreshEmAndamento;
+    if (_refreshToken == null) return Future.value(false);
 
-    _isRefreshing = true;
+    late final Future<bool> refresh;
+    refresh = _renovarToken().whenComplete(() {
+      if (identical(_refreshFuture, refresh)) _refreshFuture = null;
+    });
+    _refreshFuture = refresh;
+    return refresh;
+  }
 
+  /// Renova o token de acesso usando o token de atualização atual.
+  Future<bool> _renovarToken() async {
+    final refreshTokenAtual = _refreshToken;
+    if (refreshTokenAtual == null) return false;
     try {
-      final uri = Uri.parse('$baseUrl/token/refresh/');
-      final response = await http
+      final uri = Uri.parse('$baseUrl/auth/token/refresh');
+      final response = await _client
           .post(
             uri,
             headers: {'Content-Type': 'application/json'},
-            body: jsonEncode({'refresh': _refreshToken}),
+            body: jsonEncode({'refresh': refreshTokenAtual}),
           )
           .timeout(const Duration(seconds: 10));
 
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body);
-        _authToken = data['access'];
-        _isRefreshing = false;
-        return true;
+      if (response.statusCode != 200) {
+        clearToken();
+        throw Exception(
+          'Não foi possível renovar a sessão (HTTP ${response.statusCode}). '
+          'Faça login novamente.',
+        );
       }
-    } catch (_) {
-      // Falha ao renovar
-    }
 
-    _isRefreshing = false;
-    clearToken(); // Se a renovação falhar, limpa tudo de vez
-    return false;
+      final data = jsonDecode(response.body);
+      if (data is! Map<String, dynamic> ||
+          data['access'] is! String ||
+          (data['access'] as String).trim().isEmpty) {
+        clearToken();
+        throw const FormatException(
+          'A API retornou dados inválidos ao renovar a sessão.',
+        );
+      }
+
+      if (_refreshToken != refreshTokenAtual) return false;
+      _authToken = data['access'] as String;
+      final novoRefreshToken = data['refresh'] as String?;
+      if (novoRefreshToken != null && novoRefreshToken.isNotEmpty) {
+        _refreshToken = novoRefreshToken;
+      }
+      return true;
+    } on TimeoutException {
+      clearToken();
+      throw Exception(
+        'Tempo excedido ao renovar a sessão. Faça login novamente.',
+      );
+    } on SocketException {
+      clearToken();
+      throw Exception('Não foi possível alcançar a API para renovar a sessão.');
+    }
   }
 
   /// Encapsulador generico para executar chamadas com tentativa de Auto-Refresh
@@ -106,6 +163,8 @@ class ApiService {
     required String metodo,
     required Uri uri,
     bool decodeResponseBody = true,
+    bool returnRawResponse = false,
+    Duration timeout = const Duration(seconds: 10),
   }) async {
     final endpointAuth =
         uri.path.endsWith('/auth/token/') || uri.path.endsWith('/auth/me/');
@@ -116,7 +175,7 @@ class ApiService {
       if (uri.path.endsWith('/auth/me/')) {
         _registrarEnvioAuth(metodo, uri, tentativa: 1);
       }
-      final response = await chamadaHttp().timeout(const Duration(seconds: 10));
+      final response = await chamadaHttp().timeout(timeout);
       if (endpointAuth) {
         _registrarRespostaAuth(metodo, uri, response, tentativa: 1);
       }
@@ -128,9 +187,7 @@ class ApiService {
           if (uri.path.endsWith('/auth/me/')) {
             _registrarEnvioAuth(metodo, uri, tentativa: 2);
           }
-          final retryResponse = await chamadaHttp().timeout(
-            const Duration(seconds: 10),
-          );
+          final retryResponse = await chamadaHttp().timeout(timeout);
           if (endpointAuth) {
             _registrarRespostaAuth(metodo, uri, retryResponse, tentativa: 2);
           }
@@ -138,6 +195,7 @@ class ApiService {
             retryResponse,
             contexto: contextoRequisicao,
             decodeBody: decodeResponseBody,
+            returnRawResponse: returnRawResponse,
           );
         }
       }
@@ -146,6 +204,7 @@ class ApiService {
         response,
         contexto: contextoRequisicao,
         decodeBody: decodeResponseBody,
+        returnRawResponse: returnRawResponse,
       );
     } on TimeoutException {
       throw Exception('Tempo excedido na comunicação com a API.');
@@ -241,10 +300,29 @@ class ApiService {
   Future<dynamic> get(String endpoint) async {
     final uri = Uri.parse('$baseUrl$endpoint');
     return _executarComRetry(
-      () => http.get(uri, headers: _headers),
+      () => _client.get(uri, headers: _headers),
       metodo: 'GET',
       uri: uri,
     );
+  }
+
+  Future<Uint8List> getBytes(Uri uri) async {
+    final apiUri = Uri.parse(baseUrl);
+    Map<String, String> requestHeaders() => {
+      'Accept': 'image/*',
+      if (uri.origin == apiUri.origin && _authToken != null)
+        HttpHeaders.authorizationHeader: 'Bearer ${_authToken!}',
+    };
+    final response = await _executarComRetry(
+      () => _client.get(uri, headers: requestHeaders()),
+      metodo: 'GET',
+      uri: uri,
+      returnRawResponse: true,
+    );
+    if (response is! http.Response) {
+      throw StateError('A API não retornou uma resposta de arquivo válida.');
+    }
+    return response.bodyBytes;
   }
 
   /// Requisição POST
@@ -255,10 +333,66 @@ class ApiService {
   }) async {
     final uri = Uri.parse('$baseUrl$endpoint');
     return _executarComRetry(
-      () => http.post(uri, headers: _headers, body: jsonEncode(body)),
+      () => _client.post(uri, headers: _headers, body: jsonEncode(body)),
       metodo: 'POST',
       uri: uri,
       decodeResponseBody: decodeResponseBody,
+    );
+  }
+
+  Future<dynamic> postFile(
+    String endpoint, {
+    required String filePath,
+    String fileField = 'arquivo',
+    required Map<String, String> fields,
+  }) => _uploadFile(
+    'POST',
+    endpoint,
+    filePath: filePath,
+    fileField: fileField,
+    fields: fields,
+  );
+
+  Future<dynamic> putFile(
+    String endpoint, {
+    required String filePath,
+    String fileField = 'arquivo',
+    required Map<String, String> fields,
+  }) => _uploadFile(
+    'PUT',
+    endpoint,
+    filePath: filePath,
+    fileField: fileField,
+    fields: fields,
+  );
+
+  Future<dynamic> _uploadFile(
+    String method,
+    String endpoint, {
+    required String filePath,
+    required String fileField,
+    required Map<String, String> fields,
+  }) async {
+    if (!isAuthenticated) {
+      throw Exception('Sessão expirada. Faça login novamente.');
+    }
+
+    final uri = Uri.parse('$baseUrl$endpoint');
+
+    Future<http.Response> sendRequest() async {
+      final request = http.MultipartRequest(method, uri)
+        ..headers.addAll(_headers)
+        ..headers.remove('Content-Type')
+        ..fields.addAll(fields)
+        ..files.add(await http.MultipartFile.fromPath(fileField, filePath));
+      return http.Response.fromStream(await _client.send(request));
+    }
+
+    return _executarComRetry(
+      sendRequest,
+      metodo: method,
+      uri: uri,
+      timeout: const Duration(minutes: 5),
     );
   }
 
@@ -270,7 +404,7 @@ class ApiService {
   }) async {
     final uri = Uri.parse('$baseUrl$endpoint');
     return _executarComRetry(
-      () => http.put(uri, headers: _headers, body: jsonEncode(body)),
+      () => _client.put(uri, headers: _headers, body: jsonEncode(body)),
       metodo: 'PUT',
       uri: uri,
       decodeResponseBody: decodeResponseBody,
@@ -281,7 +415,7 @@ class ApiService {
   Future<dynamic> patch(String endpoint, Map<String, dynamic> body) async {
     final uri = Uri.parse('$baseUrl$endpoint');
     return _executarComRetry(
-      () => http.patch(uri, headers: _headers, body: jsonEncode(body)),
+      () => _client.patch(uri, headers: _headers, body: jsonEncode(body)),
       metodo: 'PATCH',
       uri: uri,
     );
@@ -291,7 +425,7 @@ class ApiService {
   Future<dynamic> delete(String endpoint) async {
     final uri = Uri.parse('$baseUrl$endpoint');
     return _executarComRetry(
-      () => http.delete(uri, headers: _headers),
+      () => _client.delete(uri, headers: _headers),
       metodo: 'DELETE',
       uri: uri,
     );
@@ -306,7 +440,7 @@ class ApiService {
     const endpoint = '/auth/redefinir-senha/';
     final uri = Uri.parse('$baseUrl$endpoint');
     final resposta = await _executarComRetry(
-      () => http.post(
+      () => _client.post(
         uri,
         headers: _headers,
         body: jsonEncode({
@@ -327,10 +461,12 @@ class ApiService {
     http.Response response, {
     String? contexto,
     bool decodeBody = true,
+    bool returnRawResponse = false,
   }) {
     final statusCode = response.statusCode;
 
     if (statusCode >= 200 && statusCode < 300) {
+      if (returnRawResponse) return response;
       if (!decodeBody) return null;
       if (response.body.isEmpty) return null;
       try {

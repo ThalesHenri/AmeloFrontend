@@ -38,6 +38,28 @@ class CondominioRepository {
     );
   }
 
+  /// Cadastra um condomínio enviando sua imagem como arquivo multipart.
+  Future<void> criarComImagem(
+    CondominioModel condominio,
+    String imagemPath,
+  ) async {
+    await _apiService.postFile(
+      '/condominios/',
+      filePath: imagemPath,
+      fileField: 'imagem',
+      fields: {
+        'nome': condominio.nome,
+        'endereco': condominio.endereco,
+        'cidade': condominio.cidade,
+        'estado': condominio.estado,
+        'cep': condominio.cep ?? '',
+        'telefone': condominio.telefone ?? '',
+        'email': condominio.email ?? '',
+        'observacoes': condominio.observacoes ?? '',
+      },
+    );
+  }
+
   /// Atualiza os dados de um condomínio existente
   Future<CondominioModel> atualizar(
     int id,
@@ -57,6 +79,21 @@ class CondominioRepository {
       payload,
       decodeResponseBody: false,
     );
+  }
+
+  /// Atualiza os dados de um condomínio e substitui sua imagem.
+  Future<CondominioModel> atualizarComImagem(
+    int id,
+    Map<String, String> fields,
+    String imagemPath,
+  ) async {
+    final data = await _apiService.putFile(
+      '/condominios/$id/',
+      filePath: imagemPath,
+      fileField: 'imagem',
+      fields: fields,
+    );
+    return CondominioModel.fromJson(data);
   }
 
   /// Remove um condomínio do sistema

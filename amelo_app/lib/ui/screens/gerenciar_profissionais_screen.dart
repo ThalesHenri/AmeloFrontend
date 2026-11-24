@@ -1,6 +1,7 @@
 // lib/ui/screens/gerenciar_profissionais_screen.dart
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../repository/models/profissional_model.dart';
 import '../../repository/profissional_repository.dart';
 import '../../repository/services/api_service.dart';
@@ -97,6 +98,7 @@ class _GerenciarProfissionaisScreenState
     final nomeController = TextEditingController();
     final especialidadeController = TextEditingController();
     final telefoneController = TextEditingController();
+    final usernameController = TextEditingController();
 
     showModalBottomSheet(
       context: context,
@@ -161,6 +163,21 @@ class _GerenciarProfissionaisScreenState
                 ),
               ),
             ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: usernameController,
+              textCapitalization: TextCapitalization.none,
+              autocorrect: false,
+              decoration: InputDecoration(
+                labelText: 'Usuário para acesso ao portal *',
+                helperText: 'A senha inicial será 123456.',
+                filled: true,
+                fillColor: theme.scaffoldBackgroundColor,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ),
+            ),
             const SizedBox(height: 20),
             SizedBox(
               width: double.infinity,
@@ -173,24 +190,34 @@ class _GerenciarProfissionaisScreenState
                   ),
                 ),
                 onPressed: () async {
-                  if (nomeController.text.trim().isNotEmpty &&
-                      especialidadeController.text.trim().isNotEmpty &&
-                      telefoneController.text.trim().isNotEmpty) {
-                    try {
-                      await _repository.criar(
-                        nome: nomeController.text.trim(),
-                        especialidade: especialidadeController.text.trim(),
-                        telefone: telefoneController.text.trim(),
-                      );
-                      if (!mounted) return;
-                      Navigator.pop(ctx);
-                      await _carregarDados();
-                    } catch (e) {
-                      if (!mounted) return;
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Falha ao cadastrar: $e')),
-                      );
-                    }
+                  final messenger = ScaffoldMessenger.of(context);
+                  if (nomeController.text.trim().isEmpty ||
+                      especialidadeController.text.trim().isEmpty ||
+                      telefoneController.text.trim().isEmpty ||
+                      usernameController.text.trim().isEmpty) {
+                    messenger.showSnackBar(
+                      const SnackBar(
+                        content: Text('Preencha os campos obrigatórios.'),
+                      ),
+                    );
+                    return;
+                  }
+                  try {
+                    await _repository.criar(
+                      nome: nomeController.text.trim(),
+                      especialidade: especialidadeController.text.trim(),
+                      telefone: telefoneController.text.trim(),
+                      username: usernameController.text.trim(),
+                    );
+                    if (!mounted) return;
+                    if (!ctx.mounted) return;
+                    Navigator.pop(ctx);
+                    await _carregarDados();
+                  } catch (e) {
+                    if (!mounted) return;
+                    messenger.showSnackBar(
+                      SnackBar(content: Text('Falha ao cadastrar: $e')),
+                    );
                   }
                 },
                 child: const Text(
@@ -206,6 +233,53 @@ class _GerenciarProfissionaisScreenState
         ),
       ),
     );
+  }
+
+  Future<void> _configurarAcessoPortal(ProfissionalModel profissional) async {
+    final messenger = ScaffoldMessenger.of(context);
+    final controller = TextEditingController(
+      text: profissional.usernameAcesso ?? '',
+    );
+    final username = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Acesso ao portal profissional'),
+        content: TextField(
+          controller: controller,
+          autocorrect: false,
+          textCapitalization: TextCapitalization.none,
+          decoration: const InputDecoration(
+            labelText: 'Nome de usuário',
+            helperText: 'A senha inicial será 123456.',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, controller.text.trim()),
+            child: const Text('Salvar acesso'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (username == null || username.isEmpty) return;
+
+    try {
+      await _repository.habilitarPortal(
+        id: profissional.id,
+        username: username,
+      );
+      await _carregarDados();
+    } catch (e) {
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(content: Text('Falha ao habilitar portal: $e')),
+      );
+    }
   }
 
   @override
@@ -327,6 +401,16 @@ class _GerenciarProfissionaisScreenState
                                   ),
                                 ),
                               ),
+                              const SizedBox(height: 6),
+                              Text(
+                                prof.portalHabilitado
+                                    ? 'Portal habilitado · ${prof.usernameAcesso}'
+                                    : 'Portal ainda não habilitado',
+                                style: const TextStyle(
+                                  fontSize: 11,
+                                  color: AmeloTheme.textSecondary,
+                                ),
+                              ),
                               const SizedBox(height: 4),
                               Row(
                                 children: [
@@ -365,22 +449,57 @@ class _GerenciarProfissionaisScreenState
                                   ),
                                 ],
                               ),
+                              if (prof.portalHabilitado)
+                                IconButton(
+                                  icon: const Icon(Icons.copy_rounded),
+                                  tooltip: 'Copiar link do portal',
+                                  onPressed: () async {
+                                    await Clipboard.setData(
+                                      ClipboardData(
+                                        text: ApiService.professionalPortalUrl,
+                                      ),
+                                    );
+                                    if (!context.mounted) return;
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          'Link do portal copiado.',
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                ),
                               PopupMenuButton<String>(
                                 onSelected: (value) async {
+                                  if (value == 'portal') {
+                                    await _configurarAcessoPortal(prof);
+                                    return;
+                                  }
                                   if (value != 'remover') return;
+                                  final messenger = ScaffoldMessenger.of(
+                                    context,
+                                  );
                                   try {
                                     await _repository.deletar(prof.id);
                                     await _carregarDados();
                                   } catch (e) {
                                     if (!mounted) return;
-                                    ScaffoldMessenger.of(context).showSnackBar(
+                                    messenger.showSnackBar(
                                       SnackBar(
                                         content: Text('Falha ao remover: $e'),
                                       ),
                                     );
                                   }
                                 },
-                                itemBuilder: (context) => const [
+                                itemBuilder: (context) => [
+                                  PopupMenuItem(
+                                    value: 'portal',
+                                    child: Text(
+                                      prof.portalHabilitado
+                                          ? 'Alterar usuário do portal'
+                                          : 'Habilitar acesso ao portal',
+                                    ),
+                                  ),
                                   PopupMenuItem(
                                     value: 'remover',
                                     child: Text(

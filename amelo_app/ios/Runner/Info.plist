@@ -24,6 +24,10 @@
 	<string>????</string>
 	<key>CFBundleVersion</key>
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
+	<key>NSCameraUsageDescription</key>
+	<string>O Amelo usa a câmera para anexar fotos às demandas.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>O Amelo acessa suas fotos para anexá-las às demandas.</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>UIApplicationSceneManifest</key>

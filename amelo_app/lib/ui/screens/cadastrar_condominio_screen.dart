@@ -1,6 +1,9 @@
 // lib/ui/screens/cadastrar_condominio_screen.dart
 
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../repository/condominio_repository.dart';
 import '../../repository/models/condominio_model.dart';
 import '../../repository/services/api_service.dart';
@@ -17,7 +20,9 @@ class CadastrarCondominioScreen extends StatefulWidget {
 class _CadastrarCondominioScreenState extends State<CadastrarCondominioScreen> {
   final _formKey = GlobalKey<FormState>();
   final _repository = CondominioRepository(ApiService());
+  final _imagePicker = ImagePicker();
   bool _isSubmitting = false;
+  XFile? _imagemSelecionada;
 
   // Controllers mapeados diretamente para os atributos da classe Condominio
   final _nomeController = TextEditingController();
@@ -40,6 +45,22 @@ class _CadastrarCondominioScreenState extends State<CadastrarCondominioScreen> {
     _emailController.dispose();
     _observacoesController.dispose();
     super.dispose();
+  }
+
+  Future<void> _selecionarImagem() async {
+    try {
+      final imagem = await _imagePicker.pickImage(source: ImageSource.gallery);
+      if (!mounted || imagem == null) return;
+      setState(() => _imagemSelecionada = imagem);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Não foi possível selecionar a imagem: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   @override
@@ -85,9 +106,7 @@ class _CadastrarCondominioScreenState extends State<CadastrarCondominioScreen> {
               // --- FOTO DO CONDOMÍNIO (Atributo: imagem) ---
               _buildLabel('Imagem da Fachada / Logo', theme),
               InkWell(
-                onTap: () {
-                  // Ação para selecionar imagem da galeria/câmera
-                },
+                onTap: _selecionarImagem,
                 borderRadius: BorderRadius.circular(12),
                 child: Container(
                   width: double.infinity,
@@ -99,24 +118,51 @@ class _CadastrarCondominioScreenState extends State<CadastrarCondominioScreen> {
                       color: AmeloTheme.textSecondary.withOpacity(0.3),
                     ),
                   ),
-                  child: const Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.add_a_photo_outlined,
-                        color: AmeloTheme.primaryGold,
-                        size: 36,
-                      ),
-                      SizedBox(height: 8),
-                      Text(
-                        'Clique para selecionar a imagem do condomínio',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: AmeloTheme.textSecondary,
+                  clipBehavior: Clip.antiAlias,
+                  child: _imagemSelecionada == null
+                      ? const Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.add_a_photo_outlined,
+                              color: AmeloTheme.primaryGold,
+                              size: 36,
+                            ),
+                            SizedBox(height: 8),
+                            Text(
+                              'Toque para selecionar uma imagem',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: AmeloTheme.textSecondary,
+                              ),
+                            ),
+                          ],
+                        )
+                      : Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            Image.file(
+                              File(_imagemSelecionada!.path),
+                              fit: BoxFit.cover,
+                            ),
+                            Align(
+                              alignment: Alignment.bottomRight,
+                              child: Container(
+                                margin: const EdgeInsets.all(8),
+                                padding: const EdgeInsets.all(6),
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withOpacity(0.65),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: const Icon(
+                                  Icons.edit,
+                                  color: Colors.white,
+                                  size: 18,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
-                      ),
-                    ],
-                  ),
                 ),
               ),
               const SizedBox(height: 16),
@@ -256,7 +302,7 @@ class _CadastrarCondominioScreenState extends State<CadastrarCondominioScreen> {
                             });
 
                             try {
-                              final payload = CondominioModel(
+                              final condominio = CondominioModel(
                                 id: 0,
                                 nome: _nomeController.text.trim(),
                                 endereco: _enderecoController.text.trim(),
@@ -268,7 +314,17 @@ class _CadastrarCondominioScreenState extends State<CadastrarCondominioScreen> {
                                 observacoes: _observacoesController.text.trim(),
                               );
 
-                              await _repository.criarSemLerResposta(payload);
+                              final imagem = _imagemSelecionada;
+                              if (imagem == null) {
+                                await _repository.criarSemLerResposta(
+                                  condominio,
+                                );
+                              } else {
+                                await _repository.criarComImagem(
+                                  condominio,
+                                  imagem.path,
+                                );
+                              }
 
                               if (!mounted) return;
 

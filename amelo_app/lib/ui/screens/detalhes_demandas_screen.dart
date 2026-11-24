@@ -1,6 +1,9 @@
 // lib/ui/screens/detalhes_demanda_screen.dart
 
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../app_routes.dart';
 import '../../repository/services/api_service.dart';
 import '../../theme.dart';
@@ -14,10 +17,13 @@ class DetalhesDemandaScreen extends StatefulWidget {
 
 class _DetalhesDemandaScreenState extends State<DetalhesDemandaScreen> {
   final ApiService _api = ApiService();
+  final ImagePicker _imagePicker = ImagePicker();
   Map<String, dynamic>? _demanda;
   bool _isLoading = true;
+  bool _isUploadingPhotos = false;
   String? _error;
   bool _initDone = false;
+  final Map<String, Future<Uint8List>> _fotosEmCarregamento = {};
 
   @override
   void didChangeDependencies() {
@@ -136,6 +142,116 @@ class _DetalhesDemandaScreenState extends State<DetalhesDemandaScreen> {
     }
   }
 
+  Future<void> _adicionarFotos(ImageSource source) async {
+    final anexos = _demanda?['anexos'];
+    final anexosAtuais = anexos is List
+        ? anexos
+              .where((anexo) => anexo is Map && anexo['isFoto'] == true)
+              .length
+        : 0;
+    final restantes = 5 - anexosAtuais;
+    if (restantes <= 0) {
+      _mostrarMensagem('Esta demanda já atingiu o limite de 5 fotos.');
+      return;
+    }
+
+    final selecionadas = <XFile>[];
+    if (source == ImageSource.gallery) {
+      selecionadas.addAll(await _imagePicker.pickMultiImage());
+    } else {
+      final foto = await _imagePicker.pickImage(source: ImageSource.camera);
+      if (foto != null) selecionadas.add(foto);
+    }
+    if (!mounted || selecionadas.isEmpty) return;
+
+    const extensoesPermitidas = {'.jpg', '.jpeg', '.png', '.webp'};
+    const tamanhoMaximo = 100 * 1024 * 1024;
+    final aceitas = <XFile>[];
+    var motivoRecusa = '';
+    for (final foto in selecionadas) {
+      final extensao = '.${foto.name.split('.').last.toLowerCase()}';
+      if (!extensoesPermitidas.contains(extensao)) {
+        motivoRecusa = 'Use imagens JPG, JPEG, PNG ou WEBP.';
+        continue;
+      }
+      if (await foto.length() > tamanhoMaximo) {
+        motivoRecusa = 'Cada foto pode ter no máximo 100 MB.';
+        continue;
+      }
+      if (aceitas.length >= restantes) {
+        motivoRecusa = 'O limite desta demanda é de 5 fotos.';
+        continue;
+      }
+      aceitas.add(foto);
+    }
+    if (!mounted) return;
+    if (motivoRecusa.isNotEmpty) _mostrarMensagem(motivoRecusa);
+    if (aceitas.isEmpty) return;
+
+    setState(() => _isUploadingPhotos = true);
+    var enviadas = 0;
+    try {
+      for (final foto in aceitas) {
+        await _api.postFile(
+          '/anexos/',
+          filePath: foto.path,
+          fields: {'demanda': _demanda!['id'].toString()},
+        );
+        enviadas++;
+      }
+      await _carregarDetalhes(_demanda!['id']);
+      if (!mounted) return;
+      _mostrarMensagem('Fotos anexadas com sucesso.');
+    } catch (e) {
+      if (!mounted) return;
+      _mostrarMensagem(
+        'Foram enviadas $enviadas de ${aceitas.length} fotos. $e',
+      );
+      await _carregarDetalhes(_demanda!['id']);
+    } finally {
+      if (mounted) setState(() => _isUploadingPhotos = false);
+    }
+  }
+
+  Future<void> _escolherOrigemFoto() async {
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Wrap(
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_library_outlined),
+              title: const Text('Escolher da galeria'),
+              onTap: () => Navigator.pop(context, ImageSource.gallery),
+            ),
+            ListTile(
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text('Tirar foto'),
+              onTap: () => Navigator.pop(context, ImageSource.camera),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (source != null) await _adicionarFotos(source);
+  }
+
+  void _mostrarMensagem(String texto) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(texto)));
+  }
+
+  String _formatarData(String data) {
+    final valor = DateTime.tryParse(data)?.toLocal();
+    if (valor == null) return data;
+    final dataFormatada =
+        '${valor.day.toString().padLeft(2, '0')}/'
+        '${valor.month.toString().padLeft(2, '0')}/${valor.year}';
+    final horaFormatada =
+        '${valor.hour.toString().padLeft(2, '0')}:'
+        '${valor.minute.toString().padLeft(2, '0')}';
+    return '$dataFormatada às $horaFormatada';
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -188,6 +304,8 @@ class _DetalhesDemandaScreenState extends State<DetalhesDemandaScreen> {
     final profissional = profObj is Map
         ? profObj['nome'] as String?
         : 'Nenhum acionado';
+    final participacaoConfirmadaEm =
+        _demanda!['participacaoConfirmadaEm'] as String?;
 
     final statusRaw = _demanda!['status'] as String? ?? 'PENDENTE';
     final urgenciaRaw = _demanda!['urgencia'] as String? ?? 'NORMAL';
@@ -197,8 +315,12 @@ class _DetalhesDemandaScreenState extends State<DetalhesDemandaScreen> {
     final urgencyLabel = _obterUrgenciaLabel(urgenciaRaw);
     final urgencyColor = _obterUrgenciaColor(urgenciaRaw);
 
-    final dataAberturaObj = DateTime.tryParse(_demanda!['dataAbertura'] as String? ?? '');
-    final dataConclusaoObj = DateTime.tryParse(_demanda!['dataConclusao'] as String? ?? '');
+    final dataAberturaObj = DateTime.tryParse(
+      _demanda!['dataAbertura'] as String? ?? '',
+    );
+    final dataConclusaoObj = DateTime.tryParse(
+      _demanda!['dataConclusao'] as String? ?? '',
+    );
     final previsaoObj = _demanda!['previsaoConclusao'] != null
         ? DateTime.tryParse(_demanda!['previsaoConclusao'] as String? ?? '')
         : null;
@@ -227,13 +349,15 @@ class _DetalhesDemandaScreenState extends State<DetalhesDemandaScreen> {
       if (duracao.inDays > 0) {
         duracaoTexto = '${duracao.inDays} dia${duracao.inDays > 1 ? 's' : ''}';
         if (duracao.inHours % 24 > 0) {
-          duracaoTexto += ', ${duracao.inHours % 24} hora${duracao.inHours % 24 > 1 ? 's' : ''}';
+          duracaoTexto +=
+              ', ${duracao.inHours % 24} hora${duracao.inHours % 24 > 1 ? 's' : ''}';
         }
         if (duracao.inMinutes % 60 > 0) {
           duracaoTexto += ', ${duracao.inMinutes % 60} min';
         }
       } else if (duracao.inHours > 0) {
-        duracaoTexto = '${duracao.inHours} hora${duracao.inHours > 1 ? 's' : ''}';
+        duracaoTexto =
+            '${duracao.inHours} hora${duracao.inHours > 1 ? 's' : ''}';
         if (duracao.inMinutes % 60 > 0) {
           duracaoTexto += ', ${duracao.inMinutes % 60} min';
         }
@@ -246,7 +370,9 @@ class _DetalhesDemandaScreenState extends State<DetalhesDemandaScreen> {
       textoTempoResolucao = 'Resolvida em $duracaoTexto';
 
       if (previsaoParseada != null) {
-        final diff = dataConclusaoParseada.difference(previsaoParseada).inMinutes;
+        final diff = dataConclusaoParseada
+            .difference(previsaoParseada)
+            .inMinutes;
         if (diff <= 0) {
           textoPrazoResultado = 'Concluída dentro do prazo';
           corPrazoResultado = AmeloTheme.statusConcluido;
@@ -254,13 +380,16 @@ class _DetalhesDemandaScreenState extends State<DetalhesDemandaScreen> {
           final atrasoMins = diff.abs();
           String atrasoTexto;
           if (atrasoMins >= 1440) {
-            atrasoTexto = '${atrasoMins / 1440} dia${atrasoMins / 1440 > 1 ? 's' : ''}';
+            atrasoTexto =
+                '${atrasoMins / 1440} dia${atrasoMins / 1440 > 1 ? 's' : ''}';
           } else if (atrasoMins >= 60) {
-            atrasoTexto = '${atrasoMins / 60} hora${atrasoMins / 60 > 1 ? 's' : ''}';
+            atrasoTexto =
+                '${atrasoMins / 60} hora${atrasoMins / 60 > 1 ? 's' : ''}';
           } else {
             atrasoTexto = '$atrasoMins min';
           }
-          textoPrazoResultado = 'Concluída fora do prazo (atraso de $atrasoTexto)';
+          textoPrazoResultado =
+              'Concluída fora do prazo (atraso de $atrasoTexto)';
           corPrazoResultado = AmeloTheme.statusUrgente;
         }
       } else {
@@ -427,13 +556,21 @@ class _DetalhesDemandaScreenState extends State<DetalhesDemandaScreen> {
               profissional ?? 'Nenhum',
               theme,
             ),
+            if (participacaoConfirmadaEm != null)
+              _buildInfoRow(
+                'Participação confirmada',
+                _formatarData(participacaoConfirmadaEm),
+                theme,
+              ),
             _buildStatusRow(
               'Status da demanda',
               statusLabel,
               statusColor,
               theme,
             ),
-            if (textoTempoResolucao.isNotEmpty || textoPrazoResultado.isNotEmpty) ...[  // Resolução da demanda
+            if (textoTempoResolucao.isNotEmpty ||
+                textoPrazoResultado.isNotEmpty) ...[
+              // Resolução da demanda
               const SizedBox(height: 12),
               const Divider(height: 1),
               const SizedBox(height: 8),
@@ -449,7 +586,10 @@ class _DetalhesDemandaScreenState extends State<DetalhesDemandaScreen> {
                     ),
                   ),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
                       color: corPrazoResultado.withValues(alpha: 0.12),
                       borderRadius: BorderRadius.circular(20),
@@ -468,7 +608,9 @@ class _DetalhesDemandaScreenState extends State<DetalhesDemandaScreen> {
                   ),
                 ],
               ),
-              if (textoPrazoResultado.isNotEmpty && textoTempoResolucao.isNotEmpty) ...[  // Prazo/tolerância
+              if (textoPrazoResultado.isNotEmpty &&
+                  textoTempoResolucao.isNotEmpty) ...[
+                // Prazo/tolerância
                 const SizedBox(height: 6),
                 Padding(
                   padding: const EdgeInsets.only(left: 32.0),
@@ -483,7 +625,9 @@ class _DetalhesDemandaScreenState extends State<DetalhesDemandaScreen> {
                   ),
                 ),
               ],
-              if (textoPrazoResultado.isEmpty && textoTempoResolucao.isNotEmpty) ...[  // Apenas tempo
+              if (textoPrazoResultado.isEmpty &&
+                  textoTempoResolucao.isNotEmpty) ...[
+                // Apenas tempo
                 const SizedBox(height: 6),
                 Padding(
                   padding: const EdgeInsets.only(left: 32.0),
@@ -541,7 +685,7 @@ class _DetalhesDemandaScreenState extends State<DetalhesDemandaScreen> {
             ),
             const SizedBox(height: 20),
             Text(
-              'Anexos',
+              'Fotos anexadas (${_quantidadeFotos}/5)',
               style: TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.bold,
@@ -549,17 +693,26 @@ class _DetalhesDemandaScreenState extends State<DetalhesDemandaScreen> {
               ),
             ),
             const SizedBox(height: 10),
-            Row(
-              children: [
-                _buildAnexoThumbnail(Icons.build_rounded, theme),
-                const SizedBox(width: 8),
-                _buildAnexoThumbnail(Icons.plumbing_rounded, theme),
-                const SizedBox(width: 8),
-                _buildAnexoThumbnail(Icons.description_rounded, theme),
-                const SizedBox(width: 8),
-                _buildAnexoMoreBadge('+3', theme),
-              ],
+            _buildFotosAnexadas(theme),
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed:
+                  _isUploadingPhotos ||
+                      (_demanda!['anexos'] is List && _quantidadeFotos >= 5)
+                  ? null
+                  : _escolherOrigemFoto,
+              icon: _isUploadingPhotos
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.add_photo_alternate_outlined),
+              label: Text(
+                _isUploadingPhotos ? 'Enviando fotos...' : 'Adicionar fotos',
+              ),
             ),
+            const SizedBox(height: 32),
             const SizedBox(height: 32),
             if (podeAvancar) ...[
               SizedBox(
@@ -781,38 +934,126 @@ class _DetalhesDemandaScreenState extends State<DetalhesDemandaScreen> {
     );
   }
 
-  static Widget _buildAnexoThumbnail(IconData icone, ThemeData theme) {
-    return Container(
-      width: 70,
-      height: 70,
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: theme.dividerColor.withOpacity(0.2)),
-      ),
-      child: Icon(icone, color: AmeloTheme.textSecondary),
+  Widget _buildFotosAnexadas(ThemeData theme) {
+    final anexos = _demanda?['anexos'];
+    final fotos = anexos is List
+        ? anexos
+              .where((anexo) => anexo is Map && anexo['isFoto'] == true)
+              .toList()
+        : <dynamic>[];
+    if (fotos.isEmpty) {
+      return Text(
+        'Nenhuma foto anexada.',
+        style: TextStyle(
+          color: theme.colorScheme.onSurface.withValues(alpha: 0.65),
+        ),
+      );
+    }
+
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: fotos.map<Widget>((anexo) {
+        final url = anexo is Map ? anexo['arquivo'] as String? : null;
+        if (url == null || url.isEmpty) return const SizedBox.shrink();
+        final imageUrl = _api.resolveMediaUri(url).toString();
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: FutureBuilder<Uint8List>(
+            future: _carregarFoto(imageUrl),
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return Tooltip(
+                  message:
+                      'Não foi possível carregar a foto: ${snapshot.error}',
+                  child: Container(
+                    width: 96,
+                    height: 96,
+                    color: theme.colorScheme.surface,
+                    alignment: Alignment.center,
+                    child: const Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.broken_image_outlined),
+                        SizedBox(height: 4),
+                        Text('Falha ao carregar', textAlign: TextAlign.center),
+                      ],
+                    ),
+                  ),
+                );
+              }
+
+              final bytes = snapshot.data;
+              if (bytes == null) {
+                return const SizedBox(
+                  width: 96,
+                  height: 96,
+                  child: Center(
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                );
+              }
+
+              return Semantics(
+                label: 'Foto anexada. Toque para ampliar.',
+                button: true,
+                child: InkWell(
+                  onTap: () => _visualizarFoto(bytes),
+                  child: Image.memory(
+                    bytes,
+                    width: 96,
+                    height: 96,
+                    cacheWidth: 192,
+                    cacheHeight: 192,
+                    fit: BoxFit.cover,
+                  ),
+                ),
+              );
+            },
+          ),
+        );
+      }).toList(),
     );
   }
 
-  static Widget _buildAnexoMoreBadge(String text, ThemeData theme) {
-    return Container(
-      width: 70,
-      height: 70,
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: theme.dividerColor.withOpacity(0.2)),
-      ),
-      child: Center(
-        child: Text(
-          text,
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-            color: theme.colorScheme.onSurface,
+  Future<Uint8List> _carregarFoto(String imageUrl) {
+    return _fotosEmCarregamento.putIfAbsent(imageUrl, () async {
+      try {
+        return await _api.getBytes(Uri.parse(imageUrl));
+      } catch (_) {
+        _fotosEmCarregamento.remove(imageUrl);
+        rethrow;
+      }
+    });
+  }
+
+  Future<void> _visualizarFoto(Uint8List bytes) async {
+    final size = MediaQuery.sizeOf(context);
+    await showDialog<void>(
+      context: context,
+      builder: (context) => Dialog(
+        insetPadding: const EdgeInsets.all(16),
+        child: SizedBox(
+          width: size.width * 0.9,
+          height: size.height * 0.8,
+          child: InteractiveViewer(
+            child: Image.memory(
+              bytes,
+              width: double.infinity,
+              height: double.infinity,
+              fit: BoxFit.contain,
+            ),
           ),
         ),
       ),
     );
+  }
+
+  int get _quantidadeFotos {
+    final anexos = _demanda?['anexos'];
+    if (anexos is! List) return 0;
+    return anexos
+        .where((anexo) => anexo is Map && anexo['isFoto'] == true)
+        .length;
   }
 }

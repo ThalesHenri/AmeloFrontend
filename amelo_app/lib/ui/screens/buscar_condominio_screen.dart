@@ -1,6 +1,9 @@
 // lib/ui/screens/buscar_condominio_screen.dart
 
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../app_routes.dart';
 import '../../repository/condominio_repository.dart';
 import '../../repository/models/condominio_model.dart';
@@ -77,82 +80,184 @@ class _BuscarCondominioScreenState extends State<BuscarCondominioScreen> {
     final observacoesController = TextEditingController(
       text: condominio.observacoes ?? '',
     );
+    XFile? imagemSelecionada;
 
     try {
       final dados = await showDialog<Map<String, String>>(
         context: context,
-        builder: (dialogContext) => AlertDialog(
-          title: const Text('Editar condomínio'),
-          content: SizedBox(
-            width: 420,
-            child: SingleChildScrollView(
-              child: Form(
-                key: formKey,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    _campoEdicao(nomeController, 'Nome', obrigatorio: true),
-                    _campoEdicao(
-                      enderecoController,
-                      'Endereço',
-                      obrigatorio: true,
-                    ),
-                    _campoEdicao(cidadeController, 'Cidade', obrigatorio: true),
-                    _campoEdicao(
-                      estadoController,
-                      'Estado (UF)',
-                      obrigatorio: true,
-                      maxLength: 2,
-                    ),
-                    _campoEdicao(cepController, 'CEP', obrigatorio: true),
-                    _campoEdicao(telefoneController, 'Telefone'),
-                    _campoEdicao(emailController, 'E-mail'),
-                    _campoEdicao(
-                      observacoesController,
-                      'Observações',
-                      maxLines: 3,
-                    ),
-                  ],
+        builder: (dialogContext) => StatefulBuilder(
+          builder: (dialogContext, setDialogState) => AlertDialog(
+            title: const Text('Editar condomínio'),
+            content: SizedBox(
+              width: 420,
+              child: SingleChildScrollView(
+                child: Form(
+                  key: formKey,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      InkWell(
+                        onTap: () async {
+                          try {
+                            final imagem = await ImagePicker().pickImage(
+                              source: ImageSource.gallery,
+                            );
+                            if (imagem != null) {
+                              setDialogState(() => imagemSelecionada = imagem);
+                            }
+                          } catch (e) {
+                            if (!mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  'Não foi possível selecionar a imagem: $e',
+                                ),
+                                backgroundColor: Colors.red,
+                              ),
+                            );
+                          }
+                        },
+                        borderRadius: BorderRadius.circular(8),
+                        child: Container(
+                          width: double.infinity,
+                          height: 128,
+                          margin: const EdgeInsets.only(bottom: 16),
+                          decoration: BoxDecoration(
+                            border: Border.all(
+                              color: Theme.of(
+                                dialogContext,
+                              ).colorScheme.outlineVariant,
+                            ),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          clipBehavior: Clip.antiAlias,
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              if (imagemSelecionada != null)
+                                Image.file(
+                                  File(imagemSelecionada!.path),
+                                  fit: BoxFit.cover,
+                                )
+                              else if (condominio.imagem?.isNotEmpty == true)
+                                Image.network(
+                                  _urlImagem(condominio.imagem!),
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (_, _, _) => const Center(
+                                    child: Icon(Icons.apartment_rounded),
+                                  ),
+                                )
+                              else
+                                const Center(
+                                  child: Icon(
+                                    Icons.add_a_photo_outlined,
+                                    size: 32,
+                                  ),
+                                ),
+                              Align(
+                                alignment: Alignment.bottomCenter,
+                                child: Container(
+                                  width: double.infinity,
+                                  color: Colors.black54,
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 6,
+                                  ),
+                                  child: Text(
+                                    imagemSelecionada != null ||
+                                            condominio.imagem?.isNotEmpty ==
+                                                true
+                                        ? 'Toque para alterar a imagem'
+                                        : 'Toque para adicionar uma imagem',
+                                    textAlign: TextAlign.center,
+                                    style: const TextStyle(
+                                      color: Colors.white,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                      _campoEdicao(nomeController, 'Nome', obrigatorio: true),
+                      _campoEdicao(
+                        enderecoController,
+                        'Endereço',
+                        obrigatorio: true,
+                      ),
+                      _campoEdicao(
+                        cidadeController,
+                        'Cidade',
+                        obrigatorio: true,
+                      ),
+                      _campoEdicao(
+                        estadoController,
+                        'Estado (UF)',
+                        obrigatorio: true,
+                        maxLength: 2,
+                      ),
+                      _campoEdicao(cepController, 'CEP', obrigatorio: true),
+                      _campoEdicao(telefoneController, 'Telefone'),
+                      _campoEdicao(emailController, 'E-mail'),
+                      _campoEdicao(
+                        observacoesController,
+                        'Observações',
+                        maxLines: 3,
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext),
+                child: const Text('Cancelar'),
+              ),
+              ElevatedButton(
+                onPressed: () {
+                  if (formKey.currentState!.validate()) {
+                    Navigator.pop(dialogContext, {
+                      'nome': nomeController.text.trim(),
+                      'endereco': enderecoController.text.trim(),
+                      'cidade': cidadeController.text.trim(),
+                      'estado': estadoController.text.trim().toUpperCase(),
+                      'cep': cepController.text.trim(),
+                      'telefone': telefoneController.text.trim(),
+                      'email': emailController.text.trim(),
+                      'observacoes': observacoesController.text.trim(),
+                    });
+                  }
+                },
+                child: const Text('Salvar alterações'),
+              ),
+            ],
           ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Cancelar'),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                if (formKey.currentState!.validate()) {
-                  Navigator.pop(dialogContext, {
-                    'nome': nomeController.text.trim(),
-                    'endereco': enderecoController.text.trim(),
-                    'cidade': cidadeController.text.trim(),
-                    'estado': estadoController.text.trim().toUpperCase(),
-                    'cep': cepController.text.trim(),
-                    'telefone': telefoneController.text.trim(),
-                    'email': emailController.text.trim(),
-                    'observacoes': observacoesController.text.trim(),
-                  });
-                }
-              },
-              child: const Text('Salvar alterações'),
-            ),
-          ],
         ),
       );
 
       if (dados == null) return;
 
-      await _repository.atualizarSemLerResposta(condominio.id, {
+      final payload = <String, dynamic>{
         ...dados,
         'telefone': dados['telefone']!.isEmpty ? null : dados['telefone'],
         'email': dados['email']!.isEmpty ? null : dados['email'],
         'observacoes': dados['observacoes']!.isEmpty
             ? null
             : dados['observacoes'],
-      });
+      };
+
+      final imagemAtualizada = imagemSelecionada == null
+          ? null
+          : await _repository.atualizarComImagem(
+              condominio.id,
+              dados,
+              imagemSelecionada!.path,
+            );
+      if (imagemSelecionada == null) {
+        await _repository.atualizarSemLerResposta(condominio.id, payload);
+      }
 
       if (!mounted) return;
       final atualizado = CondominioModel(
@@ -165,7 +270,7 @@ class _BuscarCondominioScreenState extends State<BuscarCondominioScreen> {
         telefone: dados['telefone'],
         email: dados['email'],
         observacoes: dados['observacoes'],
-        imagem: condominio.imagem,
+        imagem: imagemAtualizada?.imagem ?? condominio.imagem,
       );
       setState(() {
         final index = _condominios.indexWhere(
@@ -197,6 +302,14 @@ class _BuscarCondominioScreenState extends State<BuscarCondominioScreen> {
       emailController.dispose();
       observacoesController.dispose();
     }
+  }
+
+  String _urlImagem(String imagem) {
+    final uri = Uri.tryParse(imagem);
+    if (uri != null && uri.hasScheme) return imagem;
+    return Uri.parse(ApiService.baseUrl)
+        .resolve(imagem.startsWith('/') ? imagem : '/$imagem')
+        .toString();
   }
 
   Widget _campoEdicao(
@@ -286,7 +399,7 @@ class _BuscarCondominioScreenState extends State<BuscarCondominioScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text(
-          'Buscar Condomínio',
+          'Demandas por condomínio',
           style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
         ),
         actions: [
@@ -351,7 +464,7 @@ class _BuscarCondominioScreenState extends State<BuscarCondominioScreen> {
             child: Align(
               alignment: Alignment.centerLeft,
               child: Text(
-                'Histórico de demandas',
+                'Selecione um condomínio para acompanhar suas demandas',
                 style: TextStyle(
                   fontSize: 14,
                   fontWeight: FontWeight.bold,
@@ -375,6 +488,7 @@ class _BuscarCondominioScreenState extends State<BuscarCondominioScreen> {
                     padding: const EdgeInsets.symmetric(horizontal: 16.0),
                     children: listagem.map((condominio) {
                       // 🧙‍♂️ Lógica de Contagem de Demandas Específicas deste Condomínio
+                      int total = 0;
                       int abertas = 0;
                       int urgentes = 0;
                       int concluidas = 0;
@@ -382,11 +496,12 @@ class _BuscarCondominioScreenState extends State<BuscarCondominioScreen> {
                       for (var d in _demandasGerais) {
                         final cond = d['condominio'];
                         // Suporta tanto se a API devolver o objeto condomínio quanto apenas o ID numérico
-                        final condId =
-                            (cond is Map<String, dynamic> ? cond['id'] : cond)
-                                as int?;
+                        final condId = cond is Map<String, dynamic>
+                            ? cond['id']
+                            : cond;
 
-                        if (condId == condominio.id) {
+                        if (condId is num && condId.toInt() == condominio.id) {
+                          total++;
                           final status = d['status'] as String? ?? '';
                           final prioridade = d['prioridade'] as String? ?? '';
 
@@ -400,6 +515,7 @@ class _BuscarCondominioScreenState extends State<BuscarCondominioScreen> {
 
                       return _CondominioCardItem(
                         condominio: condominio,
+                        total: total,
                         abertas: abertas,
                         urgentes: urgentes,
                         concluidas: concluidas,
@@ -441,6 +557,7 @@ class _BuscarCondominioScreenState extends State<BuscarCondominioScreen> {
 
 class _CondominioCardItem extends StatelessWidget {
   final CondominioModel condominio;
+  final int total;
   final int abertas;
   final int urgentes;
   final int concluidas;
@@ -450,6 +567,7 @@ class _CondominioCardItem extends StatelessWidget {
 
   const _CondominioCardItem({
     required this.condominio,
+    required this.total,
     required this.abertas,
     required this.urgentes,
     required this.concluidas,
@@ -493,10 +611,22 @@ class _CondominioCardItem extends StatelessWidget {
                         width: 50,
                         height: 50,
                         color: theme.scaffoldBackgroundColor,
-                        child: const Icon(
-                          Icons.apartment_rounded,
-                          color: AmeloTheme.textSecondary,
-                        ),
+                        child: condominio.imagem?.isNotEmpty == true
+                            ? Image.network(
+                                ApiService()
+                                    .resolveMediaUri(condominio.imagem!)
+                                    .toString(),
+                                headers: ApiService().mediaHeaders,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, _, _) => const Icon(
+                                  Icons.apartment_rounded,
+                                  color: AmeloTheme.textSecondary,
+                                ),
+                              )
+                            : const Icon(
+                                Icons.apartment_rounded,
+                                color: AmeloTheme.textSecondary,
+                              ),
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -518,6 +648,15 @@ class _CondominioCardItem extends StatelessWidget {
                             style: const TextStyle(
                               fontSize: 11,
                               color: AmeloTheme.textSecondary,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            '$total ${total == 1 ? 'demanda' : 'demandas'}',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: theme.colorScheme.primary,
                             ),
                           ),
                           const SizedBox(height: 8),

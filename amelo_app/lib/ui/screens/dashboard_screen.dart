@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import '../../app_routes.dart';
 import '../../repository/services/api_service.dart';
 import '../../theme.dart';
+import 'buscar_condominio_screen.dart';
 
 class DashboardScreen extends StatefulWidget {
   const DashboardScreen({super.key});
@@ -21,6 +22,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
   bool isLoading = true;
   String? error;
   List<_CondominioBarItem> condominiosResumo = const [];
+  List<_CondominioOption> condominiosDisponiveis = const [];
+  List<Map<String, dynamic>> _demandas = const [];
+  String _condominioSelecionadoId = 'todos';
   List<Map<String, dynamic>> atividadesSupervisores = [];
 
   @override
@@ -59,6 +63,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final futures = <Future>[
         api.get('/dashboard/summary'),
         api.get('/demandas'),
+        api.get('/condominios/'),
       ];
       if (api.isGestor) {
         futures.add(api.get('/dashboard/atividades-supervisores/'));
@@ -68,11 +73,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
       final resumo = responses[0] as Map<String, dynamic>;
       final demandas = responses[1] as List<dynamic>;
-      final atividades = (api.isGestor && responses.length > 2)
-          ? List<Map<String, dynamic>>.from(responses[2] as List)
+      final condominiosRaw = responses[2] is Map
+          ? (responses[2] as Map)['results'] as List<dynamic>
+          : responses[2] as List<dynamic>;
+      final atividades = (api.isGestor && responses.length > 3)
+          ? List<Map<String, dynamic>>.from(responses[3] as List)
           : <Map<String, dynamic>>[];
 
       final grupos = <String, int>{};
+      final nomesCondominios = <String, String>{};
       for (final item in demandas) {
         final payload = item as Map<String, dynamic>;
         final condominio = payload['condominio'];
@@ -80,7 +89,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
             (condominio is Map<String, dynamic> ? condominio['nome'] : null)
                 as String? ??
             'Condomínio sem nome';
-        grupos[nome] = (grupos[nome] ?? 0) + 1;
+        final id = condominio is Map<String, dynamic>
+            ? condominio['id']?.toString() ?? 'nome:$nome'
+            : 'nome:$nome';
+        nomesCondominios[id] = nome;
+        grupos[id] = (grupos[id] ?? 0) + 1;
       }
 
       final maxValor = grupos.values.isEmpty
@@ -90,12 +103,30 @@ class _DashboardScreenState extends State<DashboardScreen> {
       final lista = grupos.entries
           .map(
             (entry) => _CondominioBarItem(
-              nome: entry.key,
+              id: entry.key,
+              nome: nomesCondominios[entry.key]!,
               valor: entry.value,
               percentual: maxValor <= 0 ? 0 : entry.value / maxValor,
             ),
           )
           .toList();
+      lista.sort((a, b) => a.nome.compareTo(b.nome));
+
+      final condominios =
+          condominiosRaw
+              .whereType<Map<String, dynamic>>()
+              .where((condominio) => condominio['id'] != null)
+              .map(
+                (condominio) => _CondominioOption(
+                  id: condominio['id'].toString(),
+                  nome: condominio['nome'] as String? ?? 'Condomínio sem nome',
+                  endereco:
+                      condominio['endereco'] as String? ??
+                      'Endereço não informado',
+                ),
+              )
+              .toList()
+            ..sort((a, b) => a.nome.compareTo(b.nome));
 
       if (!mounted) return;
 
@@ -106,6 +137,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
         andamento = (resumo['em_andamento'] as num?)?.toInt() ?? 0;
         concluidas = (resumo['concluidas'] as num?)?.toInt() ?? 0;
         condominiosResumo = lista;
+        condominiosDisponiveis = condominios;
+        _demandas = demandas.cast<Map<String, dynamic>>();
+        if (_condominioSelecionadoId != 'todos' &&
+            !condominios.any((item) => item.id == _condominioSelecionadoId)) {
+          _condominioSelecionadoId = 'todos';
+        }
         atividadesSupervisores = atividades; // 👈 NOVO
         isLoading = false;
         error = null;
@@ -143,15 +180,50 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   void _abrirDemandas(String filtro, String titulo) {
+    _CondominioOption? condominioSelecionado;
+    for (final condominio in condominiosDisponiveis) {
+      if (condominio.id == _condominioSelecionadoId) {
+        condominioSelecionado = condominio;
+        break;
+      }
+    }
     Navigator.pushNamed(
       context,
       AppRoutes.demandasCondominio,
       arguments: {
-        'id': null,
-        'nome': titulo,
-        'endereco': 'Filtro de Demandas',
+        'id': int.tryParse(_condominioSelecionadoId),
+        'nome': condominioSelecionado?.nome ?? titulo,
+        'endereco': condominioSelecionado?.endereco ?? 'Filtro de Demandas',
         'filtro': filtro,
       },
+    );
+  }
+
+  void _abrirCondominios() {
+    Navigator.of(context).push(
+      PageRouteBuilder<void>(
+        settings: const RouteSettings(name: AppRoutes.buscarCondominio),
+        pageBuilder: (context, animation, secondaryAnimation) =>
+            const BuscarCondominioScreen(),
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          final curvedAnimation = CurvedAnimation(
+            parent: animation,
+            curve: Curves.easeOutCubic,
+          );
+          return FadeTransition(
+            opacity: curvedAnimation,
+            child: SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(0, 0.025),
+                end: Offset.zero,
+              ).animate(curvedAnimation),
+              child: child,
+            ),
+          );
+        },
+        transitionDuration: const Duration(milliseconds: 240),
+        reverseTransitionDuration: const Duration(milliseconds: 200),
+      ),
     );
   }
 
@@ -168,6 +240,45 @@ class _DashboardScreenState extends State<DashboardScreen> {
     final theme = Theme.of(context);
     final api = ApiService();
     final isGestor = api.isGestor; // 👈 define o papel do usuário logado
+    final demandasFiltradas = _condominioSelecionadoId == 'todos'
+        ? _demandas
+        : _demandas.where((demanda) {
+            final condominio = demanda['condominio'];
+            return condominio is Map &&
+                condominio['id']?.toString() == _condominioSelecionadoId;
+          }).toList();
+    final totalResumo = _condominioSelecionadoId == 'todos'
+        ? total
+        : demandasFiltradas.length;
+    final abertasResumo = _condominioSelecionadoId == 'todos'
+        ? abertas
+        : demandasFiltradas
+              .where((demanda) => demanda['status'] == 'PENDENTE')
+              .length;
+    final urgentesResumo = _condominioSelecionadoId == 'todos'
+        ? urgentes
+        : demandasFiltradas
+              .where(
+                (demanda) =>
+                    demanda['urgencia'] == 'URGENTE' ||
+                    demanda['urgencia'] == 'ALTA',
+              )
+              .length;
+    final andamentoResumo = _condominioSelecionadoId == 'todos'
+        ? andamento
+        : demandasFiltradas
+              .where((demanda) => demanda['status'] == 'EM_ANDAMENTO')
+              .length;
+    final concluidasResumo = _condominioSelecionadoId == 'todos'
+        ? concluidas
+        : demandasFiltradas
+              .where((demanda) => demanda['status'] == 'CONCLUIDA')
+              .length;
+    final condominiosResumoVisiveis = _condominioSelecionadoId == 'todos'
+        ? condominiosResumo
+        : condominiosResumo
+              .where((item) => item.id == _condominioSelecionadoId)
+              .toList();
 
     return Scaffold(
       appBar: AppBar(
@@ -212,13 +323,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 },
               );
             },
-          ),
-          IconButton(
-            icon: Icon(
-              Icons.notifications_none_rounded,
-              color: theme.colorScheme.onPrimary,
-            ),
-            onPressed: () {},
           ),
           IconButton(
             icon: Icon(
@@ -353,21 +457,41 @@ class _DashboardScreenState extends State<DashboardScreen> {
                                   color: theme.colorScheme.onSurface,
                                 ),
                               ),
-                              DropdownButton<String>(
-                                value: 'Todos os condomínios',
-                                dropdownColor: theme.colorScheme.surface,
-                                style: const TextStyle(
-                                  color: AmeloTheme.textSecondary,
-                                  fontSize: 12,
-                                ),
-                                underline: const SizedBox(),
-                                items: const [
-                                  DropdownMenuItem(
-                                    value: 'Todos os condomínios',
-                                    child: Text('Todos os condomínios'),
+                              SizedBox(
+                                width: 180,
+                                child: DropdownButton<String>(
+                                  isExpanded: true,
+                                  isDense: true,
+                                  value: _condominioSelecionadoId,
+                                  dropdownColor: theme.colorScheme.surface,
+                                  style: TextStyle(
+                                    color: theme.colorScheme.onSurface,
+                                    fontSize: 12,
                                   ),
-                                ],
-                                onChanged: (value) {},
+                                  icon: const Icon(Icons.expand_more_rounded),
+                                  underline: const SizedBox(),
+                                  items: [
+                                    const DropdownMenuItem(
+                                      value: 'todos',
+                                      child: Text('Todos os condomínios'),
+                                    ),
+                                    ...condominiosDisponiveis.map(
+                                      (condominio) => DropdownMenuItem(
+                                        value: condominio.id,
+                                        child: Text(
+                                          condominio.nome,
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                  onChanged: (value) {
+                                    if (value == null) return;
+                                    setState(
+                                      () => _condominioSelecionadoId = value,
+                                    );
+                                  },
+                                ),
                               ),
                             ],
                           ),
@@ -383,7 +507,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             children: [
                               _StatusCard(
                                 titulo: 'Total de demandas',
-                                valor: total.toString(),
+                                valor: totalResumo.toString(),
                                 icone: Icons.crop_original_rounded,
                                 corIcone: Colors.blueAccent,
                                 onTap: () => _abrirDemandas(
@@ -393,7 +517,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               ),
                               _StatusCard(
                                 titulo: 'Abertas',
-                                valor: abertas.toString(),
+                                valor: abertasResumo.toString(),
                                 icone: Icons.crop_square_rounded,
                                 corIcone: AmeloTheme.statusAbertas,
                                 onTap: () => _abrirDemandas(
@@ -403,7 +527,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               ),
                               _StatusCard(
                                 titulo: 'Urgentes',
-                                valor: urgentes.toString(),
+                                valor: urgentesResumo.toString(),
                                 icone: Icons.error_outline_rounded,
                                 corIcone: AmeloTheme.statusUrgente,
                                 onTap: () => _abrirDemandas(
@@ -413,7 +537,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               ),
                               _StatusCard(
                                 titulo: 'Em andamento',
-                                valor: andamento.toString(),
+                                valor: andamentoResumo.toString(),
                                 icone: Icons.autorenew_rounded,
                                 corIcone: AmeloTheme.statusAndamento,
                                 onTap: () => _abrirDemandas(
@@ -427,7 +551,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
                           _StatusCard(
                             titulo: 'Concluídas',
-                            valor: concluidas.toString(),
+                            valor: concluidasResumo.toString(),
                             icone: Icons.check_circle_outline_rounded,
                             corIcone: AmeloTheme.statusConcluido,
                             onTap: () => _abrirDemandas(
@@ -472,7 +596,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                           ),
                           const SizedBox(height: 8),
 
-                          if (condominiosResumo.isEmpty)
+                          if (condominiosResumoVisiveis.isEmpty)
                             const Padding(
                               padding: EdgeInsets.symmetric(vertical: 12),
                               child: Text(
@@ -484,7 +608,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               ),
                             )
                           else
-                            ...condominiosResumo,
+                            ...condominiosResumoVisiveis,
 
                           // 👇 NOVO: feed de ações dos supervisores (só para Gestor)
                           if (isGestor) ...[
@@ -499,41 +623,122 @@ class _DashboardScreenState extends State<DashboardScreen> {
                             ),
                             const SizedBox(height: 8),
                             if (atividadesSupervisores.isEmpty)
-                              const Padding(
-                                padding: EdgeInsets.symmetric(vertical: 12),
-                                child: Text(
-                                  'Nenhuma ação registrada pelos supervisores ainda.',
-                                  style: TextStyle(
-                                    fontSize: 12,
-                                    color: AmeloTheme.textSecondary,
-                                  ),
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(16),
+                                decoration: BoxDecoration(
+                                  color: theme.colorScheme.surface,
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
+                                child: const Row(
+                                  children: [
+                                    Icon(
+                                      Icons.history_rounded,
+                                      color: AmeloTheme.textSecondary,
+                                    ),
+                                    SizedBox(width: 10),
+                                    Expanded(
+                                      child: Text(
+                                        'As ações registradas pelos supervisores aparecerão aqui.',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          color: AmeloTheme.textSecondary,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 ),
                               )
                             else
-                              ...atividadesSupervisores.map((a) {
+                              ...atividadesSupervisores.map((atividade) {
                                 final supervisor =
-                                    a['supervisor'] as String? ?? 'Supervisor';
+                                    atividade['supervisor'] as String? ??
+                                    'Supervisor';
                                 final descricao =
-                                    a['descricao'] as String? ?? '';
-                                final demanda = a['demanda'] as String? ?? '';
-                                return Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    vertical: 4.0,
-                                  ),
-                                  child: RichText(
-                                    text: TextSpan(
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: theme.colorScheme.onSurface,
-                                      ),
+                                    atividade['descricao'] as String? ??
+                                    'Atualizou uma demanda';
+                                final demanda =
+                                    atividade['demanda'] as String? ??
+                                    'Demanda';
+                                final data = DateTime.tryParse(
+                                  atividade['data'] as String? ?? '',
+                                )?.toLocal();
+                                final dataFormatada = data == null
+                                    ? null
+                                    : '${data.day.toString().padLeft(2, '0')}/'
+                                          '${data.month.toString().padLeft(2, '0')}/'
+                                          '${data.year} às '
+                                          '${data.hour.toString().padLeft(2, '0')}:'
+                                          '${data.minute.toString().padLeft(2, '0')}';
+                                return Card(
+                                  margin: const EdgeInsets.only(bottom: 8),
+                                  color: theme.colorScheme.surface,
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(12),
+                                    child: Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
-                                        TextSpan(
-                                          text: '$supervisor: ',
-                                          style: const TextStyle(
-                                            fontWeight: FontWeight.bold,
+                                        CircleAvatar(
+                                          backgroundColor: AmeloTheme
+                                              .primaryGold
+                                              .withValues(alpha: 0.16),
+                                          child: const Icon(
+                                            Icons.supervisor_account_rounded,
+                                            color: AmeloTheme.primaryGold,
+                                            size: 20,
                                           ),
                                         ),
-                                        TextSpan(text: '$descricao ($demanda)'),
+                                        const SizedBox(width: 12),
+                                        Expanded(
+                                          child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                              Text(
+                                                supervisor,
+                                                style: TextStyle(
+                                                  fontWeight: FontWeight.bold,
+                                                  color: theme
+                                                      .colorScheme
+                                                      .onSurface,
+                                                ),
+                                              ),
+                                              const SizedBox(height: 4),
+                                              Text(
+                                                descricao,
+                                                style: TextStyle(
+                                                  fontSize: 13,
+                                                  color: theme
+                                                      .colorScheme
+                                                      .onSurface
+                                                      .withValues(alpha: 0.85),
+                                                ),
+                                              ),
+                                              const SizedBox(height: 6),
+                                              Text(
+                                                demanda,
+                                                style: const TextStyle(
+                                                  fontSize: 12,
+                                                  color:
+                                                      AmeloTheme.statusAbertas,
+                                                  fontWeight: FontWeight.w600,
+                                                ),
+                                              ),
+                                              if (dataFormatada != null) ...[
+                                                const SizedBox(height: 4),
+                                                Text(
+                                                  dataFormatada,
+                                                  style: const TextStyle(
+                                                    fontSize: 11,
+                                                    color: AmeloTheme
+                                                        .textSecondary,
+                                                  ),
+                                                ),
+                                              ],
+                                            ],
+                                          ),
+                                        ),
                                       ],
                                     ),
                                   ),
@@ -572,13 +777,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
                               ),
                               // 🔄 Ação alternada conforme o papel do usuário
                               _ActionButton(
-                                titulo: 'Buscar\nCondomínio',
-                                icone: Icons.search,
+                                titulo: 'Demandas por\nCondomínio',
+                                icone: Icons.apartment_rounded,
                                 corFundo: AmeloTheme.primaryNavy,
-                                onTap: () => Navigator.pushNamed(
-                                  context,
-                                  AppRoutes.buscarCondominio,
-                                ),
+                                onTap: _abrirCondominios,
                               ),
                               _ActionButton(
                                 titulo: 'Cadastrar\nCondomínio',
@@ -842,11 +1044,13 @@ class _StatusCard extends StatelessWidget {
 }
 
 class _CondominioBarItem extends StatelessWidget {
+  final String id;
   final String nome;
   final int valor;
   final double percentual;
 
   const _CondominioBarItem({
+    required this.id,
     required this.nome,
     required this.valor,
     required this.percentual,
@@ -900,6 +1104,18 @@ class _CondominioBarItem extends StatelessWidget {
       ),
     );
   }
+}
+
+class _CondominioOption {
+  final String id;
+  final String nome;
+  final String endereco;
+
+  const _CondominioOption({
+    required this.id,
+    required this.nome,
+    required this.endereco,
+  });
 }
 
 class _ActionButton extends StatelessWidget {

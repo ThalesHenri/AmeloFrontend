@@ -1,6 +1,9 @@
 // lib/ui/screens/nova_demanda_screen.dart
 
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
 import '../../repository/condominio_repository.dart';
 import '../../repository/models/condominio_model.dart';
 import '../../repository/models/profissional_model.dart';
@@ -24,6 +27,8 @@ class _NovaDemandaScreenState extends State<NovaDemandaScreen> {
   final _condominioRepository = CondominioRepository(ApiService());
   final _profissionalRepository = ProfissionalRepository(ApiService());
   final _demandaRepository = DemandaRepository(ApiService());
+  final _imagePicker = ImagePicker();
+  final List<XFile> _fotosSelecionadas = [];
 
   bool _isUrgente = true;
   bool _isLoading = true;
@@ -35,7 +40,7 @@ class _NovaDemandaScreenState extends State<NovaDemandaScreen> {
   bool get _podeEditarTudo => true;
 
   String _statusSelecionado = 'PENDENTE';
-  DateTime? _previsaoConclusao; // 👈 NOVO
+  DateTime? _previsaoConclusao;
 
   final List<Map<String, String>> _statusOpcoes = [
     {'value': 'PENDENTE', 'label': 'Pendente'},
@@ -50,6 +55,16 @@ class _NovaDemandaScreenState extends State<NovaDemandaScreen> {
   String? _condominioSelecionado;
   int? _condominioIdSelecionado;
   int? _profissionalIdSelecionado;
+  int _fotosExistentes = 0;
+
+  static const int _maxFotosPorDemanda = 5;
+  static const int _maxFotoBytes = 100 * 1024 * 1024;
+  static const Set<String> _extensoesPermitidas = {
+    '.jpg',
+    '.jpeg',
+    '.png',
+    '.webp',
+  };
 
   int? _toInt(dynamic val) {
     if (val == null) return null;
@@ -69,6 +84,12 @@ class _NovaDemandaScreenState extends State<NovaDemandaScreen> {
           final demanda = args['demanda'] as Map<String, dynamic>;
           _isEditing = true;
           _demandaId = _toInt(demanda['id']);
+          final anexos = demanda['anexos'];
+          _fotosExistentes = anexos is List
+              ? anexos
+                    .where((anexo) => anexo is Map && anexo['isFoto'] == true)
+                    .length
+              : 0;
 
           _tituloController.text = demanda['titulo'] as String? ?? '';
           _descricaoController.text = demanda['descricao'] as String? ?? '';
@@ -79,7 +100,7 @@ class _NovaDemandaScreenState extends State<NovaDemandaScreen> {
           // 👇 NOVO: carrega previsão existente ao editar
           final previsaoRaw = demanda['previsaoConclusao'] as String?;
           if (previsaoRaw != null) {
-            _previsaoConclusao = DateTime.tryParse(previsaoRaw);
+            _previsaoConclusao = DateTime.tryParse(previsaoRaw)?.toLocal();
           }
 
           final urgenciaRaw = (demanda['urgencia'] as String? ?? 'NAO_URGENTE')
@@ -173,18 +194,177 @@ class _NovaDemandaScreenState extends State<NovaDemandaScreen> {
     }
   }
 
-  // 👇 NOVO: abre o seletor de data para a previsão de conclusão
-  Future<void> _selecionarPrevisao(BuildContext context) async {
+  Future<void> _selecionarPrevisao() async {
     final agora = DateTime.now();
+    final hoje = DateUtils.dateOnly(agora);
+    final previsaoAtual = _previsaoConclusao == null
+        ? null
+        : DateUtils.dateOnly(_previsaoConclusao!);
+    final dataMinima = previsaoAtual != null && previsaoAtual.isBefore(hoje)
+        ? previsaoAtual
+        : hoje;
+    final limitePadrao = DateUtils.dateOnly(
+      agora.add(const Duration(days: 365)),
+    );
+    final dataMaxima =
+        previsaoAtual != null && previsaoAtual.isAfter(limitePadrao)
+        ? previsaoAtual
+        : limitePadrao;
     final dataEscolhida = await showDatePicker(
       context: context,
-      initialDate: _previsaoConclusao ?? agora.add(const Duration(days: 3)),
-      firstDate: agora,
-      lastDate: agora.add(const Duration(days: 365)),
+      initialDate:
+          previsaoAtual ??
+          DateUtils.dateOnly(agora.add(const Duration(days: 3))),
+      firstDate: dataMinima,
+      lastDate: dataMaxima,
     );
-    if (dataEscolhida != null) {
-      setState(() => _previsaoConclusao = dataEscolhida);
+    if (dataEscolhida == null || !mounted) return;
+
+    final horaEscolhida = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(_previsaoConclusao ?? agora),
+    );
+    if (horaEscolhida == null || !mounted) return;
+
+    setState(() {
+      _previsaoConclusao = DateTime(
+        dataEscolhida.year,
+        dataEscolhida.month,
+        dataEscolhida.day,
+        horaEscolhida.hour,
+        horaEscolhida.minute,
+      );
+    });
+  }
+
+  Future<void> _selecionarFotos(ImageSource origem) async {
+    final disponiveis =
+        _maxFotosPorDemanda - _fotosExistentes - _fotosSelecionadas.length;
+    if (disponiveis <= 0) {
+      _mostrarMensagem('Esta demanda já atingiu o limite de 5 fotos.');
+      return;
     }
+
+    final List<XFile> selecionadas;
+    if (origem == ImageSource.gallery) {
+      selecionadas = await _imagePicker.pickMultiImage();
+    } else {
+      final foto = await _imagePicker.pickImage(source: ImageSource.camera);
+      selecionadas = foto == null ? [] : [foto];
+    }
+    if (!mounted || selecionadas.isEmpty) return;
+
+    final aceitas = <XFile>[];
+    var motivoRecusa = '';
+    for (final foto in selecionadas) {
+      final extensao = '.${foto.name.split('.').last.toLowerCase()}';
+      if (!_extensoesPermitidas.contains(extensao)) {
+        motivoRecusa = 'Use imagens JPG, JPEG, PNG ou WEBP.';
+        continue;
+      }
+      if (await foto.length() > _maxFotoBytes) {
+        motivoRecusa = 'Cada foto pode ter no máximo 100 MB.';
+        continue;
+      }
+      if (aceitas.length >= disponiveis) {
+        motivoRecusa = 'O limite desta demanda é de 5 fotos.';
+        continue;
+      }
+      aceitas.add(foto);
+    }
+
+    if (!mounted) return;
+    setState(() => _fotosSelecionadas.addAll(aceitas));
+    if (motivoRecusa.isNotEmpty) _mostrarMensagem(motivoRecusa);
+  }
+
+  void _mostrarMensagem(String texto) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(texto)));
+  }
+
+  Widget _buildSeletorFotos(ThemeData theme) {
+    final totalFotos = _fotosExistentes + _fotosSelecionadas.length;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _buildLabel(
+          'Fotos da demanda ($totalFotos/$_maxFotosPorDemanda)',
+          theme,
+        ),
+        if (_fotosSelecionadas.isNotEmpty)
+          SizedBox(
+            height: 84,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: _fotosSelecionadas.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 8),
+              itemBuilder: (context, index) {
+                final foto = _fotosSelecionadas[index];
+                return Stack(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.file(
+                        File(foto.path),
+                        width: 84,
+                        height: 84,
+                        cacheWidth: 168,
+                        cacheHeight: 168,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                    Positioned(
+                      right: 2,
+                      top: 2,
+                      child: IconButton(
+                        constraints: const BoxConstraints.tightFor(
+                          width: 28,
+                          height: 28,
+                        ),
+                        padding: EdgeInsets.zero,
+                        style: IconButton.styleFrom(
+                          backgroundColor: Colors.black54,
+                          foregroundColor: Colors.white,
+                        ),
+                        onPressed: () =>
+                            setState(() => _fotosSelecionadas.removeAt(index)),
+                        icon: const Icon(Icons.close, size: 18),
+                      ),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          children: [
+            OutlinedButton.icon(
+              onPressed: _isSubmitting
+                  ? null
+                  : () => _selecionarFotos(ImageSource.gallery),
+              icon: const Icon(Icons.photo_library_outlined),
+              label: const Text('Galeria'),
+            ),
+            OutlinedButton.icon(
+              onPressed: _isSubmitting
+                  ? null
+                  : () => _selecionarFotos(ImageSource.camera),
+              icon: const Icon(Icons.photo_camera_outlined),
+              label: const Text('Câmera'),
+            ),
+          ],
+        ),
+        Text(
+          'JPG, PNG ou WEBP · até 100 MB por foto',
+          style: TextStyle(
+            color: theme.colorScheme.onSurface.withOpacity(0.65),
+          ),
+        ),
+        const SizedBox(height: 20),
+      ],
+    );
   }
 
   @override
@@ -364,10 +544,9 @@ class _NovaDemandaScreenState extends State<NovaDemandaScreen> {
                     ),
                     const SizedBox(height: 16),
 
-                    // 👇 NOVO: campo de Previsão de Conclusão
                     _buildLabel('Previsão de conclusão', theme),
                     InkWell(
-                      onTap: () => _selecionarPrevisao(context),
+                      onTap: _selecionarPrevisao,
                       child: Container(
                         width: double.infinity,
                         padding: const EdgeInsets.symmetric(
@@ -384,23 +563,32 @@ class _NovaDemandaScreenState extends State<NovaDemandaScreen> {
                         child: Row(
                           children: [
                             const Icon(
-                              Icons.calendar_today_rounded,
+                              Icons.calendar_month_rounded,
                               size: 18,
                               color: AmeloTheme.textSecondary,
                             ),
                             const SizedBox(width: 10),
-                            Text(
-                              _previsaoConclusao != null
-                                  ? '${_previsaoConclusao!.day.toString().padLeft(2, '0')}/'
-                                        '${_previsaoConclusao!.month.toString().padLeft(2, '0')}/'
-                                        '${_previsaoConclusao!.year}'
-                                  : 'Selecione a data prevista',
-                              style: TextStyle(
-                                fontSize: 13,
-                                color: _previsaoConclusao != null
-                                    ? theme.colorScheme.onSurface
-                                    : AmeloTheme.textSecondary,
+                            Expanded(
+                              child: Text(
+                                _previsaoConclusao != null
+                                    ? '${_previsaoConclusao!.day.toString().padLeft(2, '0')}/'
+                                          '${_previsaoConclusao!.month.toString().padLeft(2, '0')}/'
+                                          '${_previsaoConclusao!.year} às '
+                                          '${_previsaoConclusao!.hour.toString().padLeft(2, '0')}:'
+                                          '${_previsaoConclusao!.minute.toString().padLeft(2, '0')}'
+                                    : 'Selecione a data e o horário previstos',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: _previsaoConclusao != null
+                                      ? theme.colorScheme.onSurface
+                                      : AmeloTheme.textSecondary,
+                                ),
                               ),
+                            ),
+                            const Icon(
+                              Icons.access_time_rounded,
+                              size: 18,
+                              color: AmeloTheme.textSecondary,
                             ),
                           ],
                         ),
@@ -428,6 +616,7 @@ class _NovaDemandaScreenState extends State<NovaDemandaScreen> {
                     theme: theme,
                   ),
                   const SizedBox(height: 24),
+                  _buildSeletorFotos(theme),
 
                   SizedBox(
                     width: double.infinity,
@@ -468,6 +657,7 @@ class _NovaDemandaScreenState extends State<NovaDemandaScreen> {
   }
 
   Future<void> _salvar() async {
+    final estavaCriando = !_isEditing;
     if (_podeEditarTudo) {
       if (_condominioIdSelecionado == null) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -508,9 +698,7 @@ class _NovaDemandaScreenState extends State<NovaDemandaScreen> {
               'descricao': _descricaoController.text.trim(),
               'urgencia': _isUrgente ? 'URGENTE' : 'NAO_URGENTE',
               if (_isEditing) 'status': _statusSelecionado,
-              'previsaoConclusao': _previsaoConclusao?.toIso8601String().split(
-                'T',
-              )[0], // 👈 NOVO
+              'previsaoConclusao': _previsaoConclusao?.toIso8601String(),
               'observacoes': _observacoesController.text.trim(),
               'profissional_acionado': _profissionalIdSelecionado,
               'profissionalAcionado': _profissionalIdSelecionado,
@@ -522,10 +710,43 @@ class _NovaDemandaScreenState extends State<NovaDemandaScreen> {
               'profissionalAcionado': _profissionalIdSelecionado,
             };
 
-      if (_isEditing && _demandaId != null) {
-        await ApiService().patch('/demandas/$_demandaId/', payload);
+      int? demandaId = _demandaId;
+      if (_isEditing && demandaId != null) {
+        await ApiService().patch('/demandas/$demandaId/', payload);
       } else {
-        await _demandaRepository.criar(payload);
+        final criada = await _demandaRepository.criar(payload);
+        demandaId = criada.id;
+        if (mounted) {
+          setState(() {
+            _demandaId = demandaId;
+            _isEditing = true;
+          });
+        }
+      }
+
+      var fotosEnviadas = 0;
+      final fotosParaEnviar = List<XFile>.of(_fotosSelecionadas);
+      try {
+        for (final foto in fotosParaEnviar) {
+          await ApiService().postFile(
+            '/anexos/',
+            filePath: foto.path,
+            fields: {'demanda': '$demandaId'},
+          );
+          fotosEnviadas++;
+          if (mounted) {
+            setState(() {
+              _fotosExistentes++;
+              _fotosSelecionadas.remove(foto);
+            });
+          }
+        }
+      } catch (e) {
+        throw Exception(
+          'Demanda salva, mas somente $fotosEnviadas de '
+          '${fotosParaEnviar.length} fotos foram enviadas. '
+          'Tente salvar novamente ou reabra os detalhes da demanda. $e',
+        );
       }
 
       if (!mounted) return;
@@ -533,7 +754,7 @@ class _NovaDemandaScreenState extends State<NovaDemandaScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            _isEditing
+            !estavaCriando
                 ? 'Demanda atualizada com sucesso.'
                 : 'Demanda criada com sucesso.',
           ),
